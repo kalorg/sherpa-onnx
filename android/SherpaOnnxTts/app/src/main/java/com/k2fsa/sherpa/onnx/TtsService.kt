@@ -40,21 +40,14 @@ class TtsService : TextToSpeechService() {
     private fun matchesLanguage(requestedLang: String?): Boolean {
         if (requestedLang.isNullOrBlank()) return true
         val norm = requestedLang.lowercase(Locale.ROOT)
-        val locale = activeLocale()
-        val iso2 = locale.language.lowercase(Locale.ROOT)
-        val iso3 = runCatching { locale.isO3Language.lowercase(Locale.ROOT) }.getOrDefault("")
-        return norm == iso2 || norm == iso3 ||
-            (iso2 == "fr" && (norm == "fra" || norm == "fre" || norm.startsWith("fr"))) ||
-            (iso2 == "en" && (norm == "eng" || norm.startsWith("en")))
+        return norm.startsWith("fr") || norm == "fra" || norm == "fre" ||
+            norm.startsWith("en") || norm == "eng"
     }
 
     private fun matchesCountry(requestedCountry: String?): Boolean {
         if (requestedCountry.isNullOrBlank()) return false
         val norm = requestedCountry.uppercase(Locale.ROOT)
-        val locale = activeLocale()
-        val c2 = locale.country.uppercase(Locale.ROOT)
-        val c3 = runCatching { locale.isO3Country.uppercase(Locale.ROOT) }.getOrDefault("")
-        return norm == c2 || norm == c3
+        return norm == "FR" || norm == "FRA" || norm == "US" || norm == "USA"
     }
 
     override fun onIsLanguageAvailable(lang: String?, country: String?, variant: String?): Int {
@@ -80,24 +73,44 @@ class TtsService : TextToSpeechService() {
         if (avail == TextToSpeech.LANG_NOT_SUPPORTED) {
             return TextToSpeech.LANG_NOT_SUPPORTED
         }
+        val targetDir = if (lang?.lowercase(Locale.ROOT)?.startsWith("en") == true) {
+            "pipertts-en-qnn-s25-ultra"
+        } else {
+            "pipertts-fr-qnn-s25-ultra"
+        }
         Thread {
-            runCatching { TtsManager.ensureInitialized(applicationContext) }
+            runCatching { TtsManager.ensureInitialized(applicationContext, targetDir) }
         }.start()
         return avail
     }
 
     override fun onGetVoices(): List<Voice> {
-        val locale = activeLocale()
-        val voiceName = TtsManager.getVoiceId(applicationContext)
-        val voice = Voice(
-            voiceName,
-            locale,
-            Voice.QUALITY_VERY_HIGH,
-            Voice.LATENCY_VERY_LOW,
-            false,
-            emptySet()
-        )
-        return listOf(voice)
+        val voices = mutableListOf<Voice>()
+        if (TtsManager.hasVoiceInAssetsOrFiles(applicationContext, "pipertts-fr-qnn-s25-ultra")) {
+            voices.add(
+                Voice(
+                    "piper-fr-siwis",
+                    Locale.FRANCE,
+                    Voice.QUALITY_VERY_HIGH,
+                    Voice.LATENCY_VERY_LOW,
+                    false,
+                    emptySet()
+                )
+            )
+        }
+        if (TtsManager.hasVoiceInAssetsOrFiles(applicationContext, "pipertts-en-qnn-s25-ultra")) {
+            voices.add(
+                Voice(
+                    "piper-en-amy-qnn",
+                    Locale.US,
+                    Voice.QUALITY_VERY_HIGH,
+                    Voice.LATENCY_VERY_LOW,
+                    false,
+                    emptySet()
+                )
+            )
+        }
+        return voices
     }
 
     override fun onGetDefaultVoiceNameFor(
@@ -105,16 +118,18 @@ class TtsService : TextToSpeechService() {
         country: String?,
         variant: String?
     ): String? {
-        if (onIsLanguageAvailable(lang, country, variant) == TextToSpeech.LANG_NOT_SUPPORTED) {
-            return null
+        val norm = lang?.lowercase(Locale.ROOT).orEmpty()
+        return if (norm.startsWith("en")) {
+            "piper-en-amy-qnn"
+        } else {
+            "piper-fr-siwis"
         }
-        return TtsManager.getVoiceId(applicationContext)
     }
 
     override fun onIsValidVoiceName(voiceName: String?): Int {
         if (voiceName.isNullOrBlank()) return TextToSpeech.ERROR
-        return if (voiceName == TtsManager.getVoiceId(applicationContext) ||
-            voiceName.startsWith("piper-qnn-")
+        return if (voiceName == "piper-fr-siwis" || voiceName == "piper-en-amy-qnn" ||
+            voiceName.startsWith("piper-")
         ) {
             TextToSpeech.SUCCESS
         } else {
@@ -126,8 +141,13 @@ class TtsService : TextToSpeechService() {
         if (onIsValidVoiceName(voiceName) != TextToSpeech.SUCCESS) {
             return TextToSpeech.ERROR
         }
+        val targetDir = if (voiceName?.contains("en") == true) {
+            "pipertts-en-qnn-s25-ultra"
+        } else {
+            "pipertts-fr-qnn-s25-ultra"
+        }
         Thread {
-            runCatching { TtsManager.ensureInitialized(applicationContext) }
+            runCatching { TtsManager.ensureInitialized(applicationContext, targetDir) }
         }.start()
         return TextToSpeech.SUCCESS
     }
@@ -148,8 +168,14 @@ class TtsService : TextToSpeechService() {
             return
         }
 
+        val reqLang = request.language?.lowercase(Locale.ROOT).orEmpty()
+        val targetDir = if (reqLang.startsWith("en")) {
+            "pipertts-en-qnn-s25-ultra"
+        } else {
+            "pipertts-fr-qnn-s25-ultra"
+        }
         val tts = try {
-            TtsManager.ensureInitialized(applicationContext)
+            TtsManager.ensureInitialized(applicationContext, targetDir)
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to init TTS in onSynthesizeText", e)
             callback.error()

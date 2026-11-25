@@ -47,7 +47,7 @@ object TtsManager {
     fun getActiveLocale(context: Context): Locale {
         val t = ttsInstance
         val lang = t?.lang()?.lowercase(Locale.ROOT).orEmpty()
-        if (lang.startsWith("fr") || getActiveModelDir(context).contains("-fr-")) {
+        if (lang.startsWith("fr") || activeModelDir.contains("-fr-")) {
             return Locale.FRANCE
         }
         return Locale.US
@@ -55,22 +55,30 @@ object TtsManager {
 
     fun getVoiceId(context: Context): String {
         val locale = getActiveLocale(context)
-        return "piper-qnn-${locale.toLanguageTag()}"
+        val name = if (activeModelDir.contains("-fr-")) "siwis" else "amy"
+        return "piper-${locale.language}-$name"
     }
 
-    fun ensureInitialized(context: Context): OfflineTts {
-        ttsInstance?.let { return it }
-        synchronized(lock) {
-            ttsInstance?.let { return it }
+    fun ensureInitialized(context: Context, preferredModelDir: String? = null): OfflineTts {
+        val appContext = context.applicationContext
+        val targetDir = preferredModelDir ?: getActiveModelDir(appContext)
 
-            val appContext = context.applicationContext
+        ttsInstance?.let {
+            if (activeModelDir == targetDir) return it
+        }
+
+        synchronized(lock) {
+            ttsInstance?.let {
+                if (activeModelDir == targetDir) return it
+            }
+
+            val modelDir = targetDir
+            activeModelDir = modelDir
+
             if (!phonemizerReady) {
                 piperPhonemizeInitialize(appContext)
                 phonemizerReady = true
             }
-
-            val modelDir = getActiveModelDir(appContext)
-            activeModelDir = modelDir
 
             val cfgAsset = "$modelDir/config.json"
             if (assetExists(appContext, cfgAsset)) {
@@ -131,7 +139,7 @@ object TtsManager {
     fun phonemize(tts: OfflineTts, text: String): Array<IntArray> {
         var voice = tts.lang()
         if (voice.isEmpty()) {
-            voice = "en-us"
+            voice = if (activeModelDir.contains("-fr-")) "fr" else "en-us"
         }
         Log.i(TAG, "Phonemizer voice: $voice")
         val result = piperPhonemizeText(text, voice)
@@ -143,7 +151,7 @@ object TtsManager {
         }
     }
 
-    private fun hasVoiceInAssetsOrFiles(context: Context, dir: String): Boolean {
+    fun hasVoiceInAssetsOrFiles(context: Context, dir: String): Boolean {
         val inAssets = runCatching { context.assets.list(dir)?.isNotEmpty() == true }.getOrDefault(false)
         if (inAssets) return true
         val inFiles = File(context.filesDir, "$dir/tokens.txt").exists()

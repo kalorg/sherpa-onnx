@@ -67,14 +67,14 @@ class MainActivity : AppCompatActivity() {
 
         val isFrench = TtsManager.getActiveModelDir(applicationContext).contains("-fr-")
         val sampleText = if (isFrench) {
-            "Bonjour ! Cette voix est synthétisée sur le NPU Qualcomm Hexagon de votre Samsung Galaxy S25 Ultra avec Sherpa ONNX et QNN."
+            "Bonjour ! Cette voix française est synthétisée avec succès par Sherpa-ONNX."
         } else {
             "Hello! This voice is synthesized on your Samsung Galaxy S25 Ultra Qualcomm Hexagon NPU using Sherpa ONNX and QNN."
         }
         text.setText(sampleText)
 
         generate.isEnabled = false
-        generate.text = "Initializing NPU TTS..."
+        generate.text = "Initializing TTS..."
         play.isEnabled = false
         save.isEnabled = false
         share.isEnabled = false
