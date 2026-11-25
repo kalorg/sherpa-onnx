@@ -15,6 +15,7 @@ import java.util.Locale
  * - Full diagnostics logging into AppLog.
  */
 object TtsManager {
+    const val NARRATEUR_MODEL_DIR = "pipertts-fr-narrateur-s25-ultra"
     const val FR_MODEL_DIR = "pipertts-fr-qnn-s25-ultra"
     const val EN_MODEL_DIR = "pipertts-en-qnn-s25-ultra"
     private const val QNN_BINS = "encoder.bin,sdp.bin,flow.bin,decoder.bin"
@@ -63,7 +64,7 @@ object TtsManager {
     fun getActiveLocale(context: Context): Locale {
         val t = ttsInstance
         val lang = t?.lang()?.lowercase(Locale.ROOT).orEmpty()
-        if (lang.startsWith("fr") || activeModelDir.contains("-fr-")) {
+        if (lang.startsWith("fr") || activeModelDir.contains("-fr-") || activeModelDir.contains("narrateur")) {
             return Locale.FRANCE
         }
         return Locale.US
@@ -71,7 +72,11 @@ object TtsManager {
 
     fun getVoiceId(context: Context): String {
         val locale = getActiveLocale(context)
-        val name = if (activeModelDir.contains("-fr-")) "siwis" else "amy"
+        val name = when {
+            activeModelDir.contains("narrateur") -> "narrateur"
+            activeModelDir.contains("-fr-") -> "siwis"
+            else -> "amy"
+        }
         return "piper-${locale.language}-$name"
     }
 
@@ -202,7 +207,7 @@ object TtsManager {
         val start = System.currentTimeMillis()
         var voice = tts.lang()
         if (voice.isEmpty()) {
-            voice = if (activeModelDir.contains("-fr-")) "fr" else "en-us"
+            voice = if (activeModelDir.contains("-fr-") || activeModelDir.contains("narrateur")) "fr" else "en-us"
         }
         AppLog.i("Phonemizing text (${text.length} chars) using voice '$voice'...")
         val result = piperPhonemizeText(text, voice)

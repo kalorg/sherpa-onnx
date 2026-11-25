@@ -88,6 +88,18 @@ class TtsService : TextToSpeechService() {
 
     override fun onGetVoices(): List<Voice> {
         val voices = mutableListOf<Voice>()
+        if (TtsManager.hasVoiceInAssetsOrFiles(applicationContext, "pipertts-fr-narrateur-s25-ultra")) {
+            voices.add(
+                Voice(
+                    "piper-fr-narrateur",
+                    Locale.FRANCE,
+                    Voice.QUALITY_VERY_HIGH,
+                    Voice.LATENCY_VERY_LOW,
+                    false,
+                    emptySet()
+                )
+            )
+        }
         if (TtsManager.hasVoiceInAssetsOrFiles(applicationContext, "pipertts-fr-qnn-s25-ultra")) {
             voices.add(
                 Voice(
@@ -123,6 +135,8 @@ class TtsService : TextToSpeechService() {
         val norm = lang?.lowercase(Locale.ROOT).orEmpty()
         return if (norm.startsWith("en")) {
             "piper-en-amy-qnn"
+        } else if (TtsManager.hasVoiceInAssetsOrFiles(applicationContext, "pipertts-fr-narrateur-s25-ultra")) {
+            "piper-fr-narrateur"
         } else {
             "piper-fr-siwis"
         }
@@ -130,7 +144,7 @@ class TtsService : TextToSpeechService() {
 
     override fun onIsValidVoiceName(voiceName: String?): Int {
         if (voiceName.isNullOrBlank()) return TextToSpeech.ERROR
-        return if (voiceName == "piper-fr-siwis" || voiceName == "piper-en-amy-qnn" ||
+        return if (voiceName == "piper-fr-narrateur" || voiceName == "piper-fr-siwis" || voiceName == "piper-en-amy-qnn" ||
             voiceName.startsWith("piper-")
         ) {
             TextToSpeech.SUCCESS
@@ -143,10 +157,11 @@ class TtsService : TextToSpeechService() {
         if (onIsValidVoiceName(voiceName) != TextToSpeech.SUCCESS) {
             return TextToSpeech.ERROR
         }
-        val targetDir = if (voiceName?.contains("en") == true) {
-            "pipertts-en-qnn-s25-ultra"
-        } else {
-            "pipertts-fr-qnn-s25-ultra"
+        val targetDir = when {
+            voiceName?.contains("narrateur") == true -> "pipertts-fr-narrateur-s25-ultra"
+            voiceName?.contains("siwis") == true -> "pipertts-fr-qnn-s25-ultra"
+            voiceName?.contains("en") == true -> "pipertts-en-qnn-s25-ultra"
+            else -> "pipertts-fr-narrateur-s25-ultra"
         }
         Thread {
             runCatching { TtsManager.ensureInitialized(applicationContext, targetDir) }

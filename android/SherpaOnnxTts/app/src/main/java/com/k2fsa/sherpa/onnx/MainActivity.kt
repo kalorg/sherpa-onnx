@@ -89,16 +89,25 @@ class MainActivity : AppCompatActivity() {
         share.setOnClickListener { onClickShare() }
 
         rgVoices.setOnCheckedChangeListener { _, checkedId ->
-            if (checkedId == R.id.rb_voice_en) {
-                TtsManager.setActiveModelDir(TtsManager.EN_MODEL_DIR)
-                TtsManager.reset()
-                text.setText("Hello! This voice is accelerated by Qualcomm Hexagon NPU on your Samsung Galaxy S25 Ultra.")
-                startTtsInit(preferredModel = TtsManager.EN_MODEL_DIR)
-            } else {
-                TtsManager.setActiveModelDir(TtsManager.FR_MODEL_DIR)
-                TtsManager.reset()
-                text.setText("Bonjour ! Cette voix française est synthétisée avec succès par Sherpa-ONNX.")
-                startTtsInit(preferredModel = TtsManager.FR_MODEL_DIR)
+            when (checkedId) {
+                R.id.rb_voice_narrateur -> {
+                    TtsManager.setActiveModelDir(TtsManager.NARRATEUR_MODEL_DIR)
+                    TtsManager.reset()
+                    text.setText("Bonjour ! Cette voix est celle de votre modèle narrateur personnalisé.")
+                    startTtsInit(preferredModel = TtsManager.NARRATEUR_MODEL_DIR)
+                }
+                R.id.rb_voice_en -> {
+                    TtsManager.setActiveModelDir(TtsManager.EN_MODEL_DIR)
+                    TtsManager.reset()
+                    text.setText("Hello! This voice is accelerated by Qualcomm Hexagon NPU on your Samsung Galaxy S25 Ultra.")
+                    startTtsInit(preferredModel = TtsManager.EN_MODEL_DIR)
+                }
+                R.id.rb_voice_fr -> {
+                    TtsManager.setActiveModelDir(TtsManager.FR_MODEL_DIR)
+                    TtsManager.reset()
+                    text.setText("Bonjour ! Cette voix française est synthétisée avec le modèle Siwis.")
+                    startTtsInit(preferredModel = TtsManager.FR_MODEL_DIR)
+                }
             }
         }
 
@@ -126,10 +135,10 @@ class MainActivity : AppCompatActivity() {
         sid.setText("0")
         speed.setText("1.0")
 
-        text.setText("Hello! This voice is accelerated by Qualcomm Hexagon NPU on your Samsung Galaxy S25 Ultra.")
-        TtsManager.setActiveModelDir(TtsManager.EN_MODEL_DIR)
+        text.setText("Bonjour ! Cette voix est celle de votre modèle narrateur personnalisé.")
+        TtsManager.setActiveModelDir(TtsManager.NARRATEUR_MODEL_DIR)
 
-        startTtsInit(preferredModel = TtsManager.EN_MODEL_DIR)
+        startTtsInit(preferredModel = TtsManager.NARRATEUR_MODEL_DIR)
     }
 
     private fun onSetMode(mode: String) {

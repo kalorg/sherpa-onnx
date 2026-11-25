@@ -38,14 +38,22 @@
                 android:orientation="vertical">
 
                 <RadioButton
-                    android:id="@+id/rb_voice_en"
+                    android:id="@+id/rb_voice_narrateur"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:checked="true"
-                    android:text="⚡ NPU Qualcomm Hexagon V79 : English (Amy)"
-                    android:textColor="#0B69A3"
+                    android:text="🎙️ Français : Narrateur (Modèle personnalisé Drive)"
+                    android:textColor="#1B4D3E"
                     android:textSize="12sp"
                     android:textStyle="bold" />
+
+                <RadioButton
+                    android:id="@+id/rb_voice_en"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="⚡ NPU Qualcomm Hexagon V79 : English (Amy)"
+                    android:textColor="#0B69A3"
+                    android:textSize="12sp" />
 
                 <RadioButton
                     android:id="@+id/rb_voice_fr"
