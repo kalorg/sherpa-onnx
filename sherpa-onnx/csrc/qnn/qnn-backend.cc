@@ -217,9 +217,84 @@ class QnnBackend::Impl {
   }
 
   void InitDevice() {
-    auto ret =
-        qnn_interface_.deviceCreate(log_handle_, nullptr, &device_handle_);
-    SHERPA_ONNX_QNN_CHECK(ret, "Failed to call deviceCreate");
+    // Attempt 1: HTP config with unsigned process domain and Hexagon V79 arch
+    QnnHtpDevice_CustomConfig_t custom_signed_pd{};
+    custom_signed_pd.option = QNN_HTP_DEVICE_CONFIG_OPTION_SIGNEDPD;
+    custom_signed_pd.useSignedProcessDomain.deviceId = 0;
+    custom_signed_pd.useSignedProcessDomain.useSignedProcessDomain = false;
+
+    QnnHtpDevice_CustomConfig_t custom_arch{};
+    custom_arch.option = QNN_HTP_DEVICE_CONFIG_OPTION_ARCH;
+    custom_arch.arch.deviceId = 0;
+    custom_arch.arch.arch = QNN_HTP_DEVICE_ARCH_V79;
+
+    QnnDevice_Config_t dev_cfg_signed_pd{};
+    dev_cfg_signed_pd.option = QNN_DEVICE_CONFIG_OPTION_CUSTOM;
+    dev_cfg_signed_pd.customConfig = &custom_signed_pd;
+
+    QnnDevice_Config_t dev_cfg_arch{};
+    dev_cfg_arch.option = QNN_DEVICE_CONFIG_OPTION_CUSTOM;
+    dev_cfg_arch.customConfig = &custom_arch;
+
+    const QnnDevice_Config_t *configs_v79[] = {
+        &dev_cfg_signed_pd,
+        &dev_cfg_arch,
+        nullptr
+    };
+
+    auto ret = qnn_interface_.deviceCreate(log_handle_, configs_v79, &device_handle_);
+    if (ret == QNN_SUCCESS && device_handle_ != nullptr) {
+      SHERPA_ONNX_LOGE("deviceCreate succeeded with V79 + unsigned PD config");
+      return;
+    }
+    SHERPA_ONNX_LOGE("deviceCreate with V79+unsigned PD failed: %d", static_cast<int>(ret));
+
+    // Attempt 2: Explicit SoC configuration (SM8750 = 69) with unsigned PD
+    QnnHtpDevice_CustomConfig_t custom_soc{};
+    custom_soc.option = QNN_HTP_DEVICE_CONFIG_OPTION_SOC;
+    custom_soc.socModel = 69;
+
+    QnnDevice_Config_t dev_cfg_soc{};
+    dev_cfg_soc.option = QNN_DEVICE_CONFIG_OPTION_CUSTOM;
+    dev_cfg_soc.customConfig = &custom_soc;
+
+    const QnnDevice_Config_t *configs_soc[] = {
+        &dev_cfg_signed_pd,
+        &dev_cfg_soc,
+        nullptr
+    };
+    ret = qnn_interface_.deviceCreate(log_handle_, configs_soc, &device_handle_);
+    if (ret == QNN_SUCCESS && device_handle_ != nullptr) {
+      SHERPA_ONNX_LOGE("deviceCreate succeeded with SM8750 + unsigned PD config");
+      return;
+    }
+    SHERPA_ONNX_LOGE("deviceCreate with SM8750+unsigned PD failed: %d", static_cast<int>(ret));
+
+    // Attempt 3: Try unsigned PD alone
+    const QnnDevice_Config_t *configs_pd_only[] = {
+        &dev_cfg_signed_pd,
+        nullptr
+    };
+    ret = qnn_interface_.deviceCreate(log_handle_, configs_pd_only, &device_handle_);
+    if (ret == QNN_SUCCESS && device_handle_ != nullptr) {
+      SHERPA_ONNX_LOGE("deviceCreate succeeded with unsigned PD config");
+      return;
+    }
+    SHERPA_ONNX_LOGE("deviceCreate with unsigned PD failed: %d", static_cast<int>(ret));
+
+    // Attempt 4: Nullptr config (default)
+    ret = qnn_interface_.deviceCreate(log_handle_, nullptr, &device_handle_);
+    if (ret == QNN_SUCCESS && device_handle_ != nullptr) {
+      SHERPA_ONNX_LOGE("deviceCreate succeeded with null config");
+      return;
+    }
+    SHERPA_ONNX_LOGE("deviceCreate with null config returned %d", static_cast<int>(ret));
+
+    // If deviceCreate fails on this commercial Android firmware, device_handle_
+    // remains nullptr. In QNN, contextCreateFromBinary accepts nullptr as device
+    // handle (hardware affinity is extracted directly from context binary).
+    device_handle_ = nullptr;
+    SHERPA_ONNX_LOGE("Proceeding with device_handle_ = nullptr (hardware affinity handled by context binary).");
   }
 
   // Pin the HTP (NPU DSP) to max clocks for the lifetime of this backend.

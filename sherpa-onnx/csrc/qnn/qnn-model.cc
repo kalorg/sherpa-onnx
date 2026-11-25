@@ -184,12 +184,25 @@ class QnnModel::Impl {
 
     Qnn_ContextHandle_t context_handle = nullptr;
 
-    if (backend_->QnnInterface().contextCreateFromBinary(
-            backend_->BackendHandle(), backend_->DeviceHandle(),
-            context_config_, static_cast<void *>(buffer.data()), buffer.size(),
-            &context_handle, nullptr) != QNN_SUCCESS) {
+    ret = backend_->QnnInterface().contextCreateFromBinary(
+        backend_->BackendHandle(), backend_->DeviceHandle(),
+        context_config_, static_cast<void *>(buffer.data()), buffer.size(),
+        &context_handle, nullptr);
+    if (ret != QNN_SUCCESS && backend_->DeviceHandle() != nullptr) {
+      SHERPA_ONNX_LOGE(
+          "contextCreateFromBinary with device handle failed (%d), retrying "
+          "with nullptr device handle...",
+          static_cast<int>(ret));
+      ret = backend_->QnnInterface().contextCreateFromBinary(
+          backend_->BackendHandle(), nullptr,
+          context_config_, static_cast<void *>(buffer.data()), buffer.size(),
+          &context_handle, nullptr);
+    }
+
+    if (ret != QNN_SUCCESS) {
       free_graphs_info();
-      SHERPA_ONNX_LOGE("Could not create context from binary.");
+      SHERPA_ONNX_LOGE("Could not create context from binary. Error: %d",
+                       static_cast<int>(ret));
       return false;
     }
 
