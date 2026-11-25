@@ -563,110 +563,16 @@ if(NOT BUILD_SHARED_LIBS AND CMAKE_SYSTEM_NAME STREQUAL Linux)
   endif()
 endif()
 
-if(SHERPA_ONNX_ENABLE_PYTHON)
-  include(pybind11)
-endif()
-
-include(kaldi-native-fbank)
 include(kaldi-native-io)
-include(kissfft)
 include(openfst)
 include(utf8proc)
 include(kaldifst)
-include(kaldi-decoder)
-include(kaldi-hmm-gmm)
 include(onnxruntime)
-include(simple-sentencepiece)
 set(ONNXRUNTIME_DIR ${onnxruntime_SOURCE_DIR})
 message(STATUS "ONNXRUNTIME_DIR: ${ONNXRUNTIME_DIR}")
 
-if(SHERPA_ONNX_ENABLE_PORTAUDIO AND SHERPA_ONNX_ENABLE_BINARY)
-  # portaudio is used only in building demo binaries and the sherpa-onnx-core
-  # library does not depend on it.
-  include(portaudio)
-endif()
-
-if(SHERPA_ONNX_ENABLE_TESTS)
-  enable_testing()
-  include(googletest)
-endif()
-
-if(SHERPA_ONNX_ENABLE_WEBSOCKET)
-  include(websocketpp)
-  include(asio)
-endif()
-
 include(json)
-
-if(SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION)
-  include(hclust-cpp)
-endif()
-
-# if(NOT MSVC AND CMAKE_BUILD_TYPE STREQUAL Debug AND (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang"))
-if(SHERPA_ONNX_ENABLE_SANITIZER)
-  message(WARNING "enable ubsan and asan")
-  set(CMAKE_REQUIRED_LIBRARIES -lubsan -lasan)
-  include(CheckCCompilerFlag)
-
-  set(flags -fsanitize=undefined )
-  string(APPEND flags " -fno-sanitize-recover=undefined ")
-  string(APPEND flags " -fsanitize=integer ")
-  string(APPEND flags " -fsanitize=nullability ")
-  string(APPEND flags " -fsanitize=implicit-conversion ")
-  string(APPEND flags " -fsanitize=bounds ")
-  string(APPEND flags " -fsanitize=address ")
-
-  if(OFF)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${flags} -Wall -Wextra")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${flags} -Wall -Wextra")
-  else()
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${flags}")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${flags}")
-  endif()
-
-  set(CMAKE_EXECUTABLE_LINKER_FLAGS "${CMAKE_EXECUTABLE_LINKER_FLAGS} ${flags}")
-
-  add_compile_options(-fno-omit-frame-pointer)
-endif()
 
 add_subdirectory(sherpa-onnx)
 
-if(SHERPA_ONNX_ENABLE_C_API AND SHERPA_ONNX_ENABLE_BINARY AND SHERPA_ONNX_BUILD_C_API_EXAMPLES)
-  add_subdirectory(c-api-examples)
-  add_subdirectory(cxx-api-examples)
-endif()
-
-if(SHERPA_ONNX_ENABLE_WASM)
-  add_subdirectory(wasm)
-endif()
-
-message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
-
-if(NOT BUILD_SHARED_LIBS)
-  if(APPLE)
-    set(SHERPA_ONNX_PKG_CONFIG_EXTRA_LIBS "-lc++ -framework Foundation")
-  endif()
-
-  if(UNIX AND NOT APPLE)
-    set(SHERPA_ONNX_PKG_CONFIG_EXTRA_LIBS "-lstdc++ -lm -pthread -ldl")
-  endif()
-endif()
-
-if(NOT BUILD_SHARED_LIBS)
-# See https://people.freedesktop.org/~dbn/pkg-config-guide.html
-  if(SHERPA_ONNX_ENABLE_TTS)
-    configure_file(cmake/sherpa-onnx-static.pc.in ${PROJECT_BINARY_DIR}/sherpa-onnx.pc @ONLY)
-  else()
-    configure_file(cmake/sherpa-onnx-static-no-tts.pc.in ${PROJECT_BINARY_DIR}/sherpa-onnx.pc @ONLY)
-  endif()
-else()
-  configure_file(cmake/sherpa-onnx-shared.pc.in ${PROJECT_BINARY_DIR}/sherpa-onnx.pc @ONLY)
-endif()
-
-install(
-  FILES
-    ${PROJECT_BINARY_DIR}/sherpa-onnx.pc
-  DESTINATION
-    .
-)
 message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")

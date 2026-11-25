@@ -1,317 +1,159 @@
 package com.k2fsa.sherpa.onnx.tts.engine
 
-import PreferenceHelper
 import android.content.Context
-import android.content.res.AssetManager
 import android.util.Log
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import com.github.csukuangfj.piper.phonemize.piperPhonemizeInitialize
 import com.github.csukuangfj.piper.phonemize.piperPhonemizeText
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.getOfflineTtsConfig
+import java.io.File
+import java.util.Locale
 
-const val MIN_TTS_SPEED = 0.1f
-const val MAX_TTS_SPEED = 5.0f
+const val TAG = "sherpa-onnx-tts-engine"
+const val MIN_TTS_SPEED = 0.25f
+const val MAX_TTS_SPEED = 3.0f
 
+/**
+ * Piper TTS Engine for Samsung Galaxy S25 Ultra (Qualcomm Hexagon V79 NPU + CPU ONNX fallback).
+ */
 object TtsEngine {
+    private const val FR_MODEL_DIR = "pipertts-fr-qnn-s25-ultra"
+    private const val EN_MODEL_DIR = "pipertts-en-qnn-s25-ultra"
+    private const val QNN_BINS = "encoder.bin,sdp.bin,flow.bin,decoder.bin"
+
+    private val lock = Any()
+
+    @Volatile
     var tts: OfflineTts? = null
 
-    // https://en.wikipedia.org/wiki/ISO_639-3
-    // Example:
-    // eng for English,
-    // deu for German
-    // cmn for Mandarin
-    var lang: String? = null
-
-    // if a model supports two languages, set also lang2
+    var speed: Float = 1.0F
+    var speakerId: Int = 0
+    var modelDir: String = EN_MODEL_DIR
+    var modelName: String? = null
+    var qnnBackendLib: String = "libQnnHtp.so"
+    var qnnSystemLib: String = "libQnnSystem.so"
+    var qnnContextBinary: String = QNN_BINS
+    var usePhonemize: Boolean = true
+    var lang: String = "eng"
     var lang2: String? = null
+    var activeBackend: String = "Qualcomm Hexagon NPU (QNN HTP V79)"
 
-    // for Supertonic TTS: language code in ISO 639-1 format, e.g., "en", "zh", "ja"
-    var supertonicLang: String = "en"
+    @Volatile
+    private var phonemizerReady: Boolean = false
 
-
-    val speedState: MutableState<Float> = mutableFloatStateOf(1.0F)
-    val speakerIdState: MutableState<Int> = mutableIntStateOf(0)
-
-    var speed: Float
-        get() = speedState.value
-        set(value) {
-            speedState.value = value
+    fun getActiveLocale(context: Context? = null): Locale {
+        val modelLang = tts?.lang()?.lowercase(Locale.ROOT).orEmpty()
+        if (modelLang.startsWith("fr") || lang == "fra" || lang == "fr" || modelDir.contains("-fr-")) {
+            return Locale.FRANCE
         }
-
-    var speakerId: Int
-        get() = speakerIdState.value
-        set(value) {
-            speakerIdState.value = value
+        if (context != null && hasVoiceInAssetsOrFiles(context, FR_MODEL_DIR)) {
+            return Locale.FRANCE
         }
+        return Locale.US
+    }
 
-    private var modelDir: String? = null
-    private var modelName: String? = null
-    private var acousticModelName: String? = null // for matcha tts
-    private var vocoder: String? = null // for matcha tts
-    private var voices: String? = null // for kokoro
-    private var ruleFsts: String? = null
-    private var ruleFars: String? = null
-    private var lexicon: String? = null
-    var usePhonemize = false
-    private var assets: AssetManager? = null
-    private var isKitten = false
-    var isSupertonic = false
-    private var durationPredictor: String? = null
-    private var textEncoder: String? = null
-    private var vectorEstimator: String? = null
-    private var supertonicVocoder: String? = null
-    private var ttsJson: String? = null
-    private var unicodeIndexer: String? = null
-    private var voiceStyle: String? = null
-    private var qnnBackendLib: String? = null
-    private var qnnSystemLib: String? = null
-    private var qnnContextBinary: String? = null
-    private var qnnHtpPerfMode: Boolean = false
-
-    init {
-        // The purpose of such a design is to make the CI test easier
-        // Please see
-        // https://github.com/k2-fsa/sherpa-onnx/blob/master/scripts/apk/generate-tts-apk-script.py
-        //
-        // For VITS -- begin
-        modelName = null
-        // For VITS -- end
-
-        // For Matcha -- begin
-        acousticModelName = null
-        vocoder = null
-        // For Matcha -- end
-
-        // For Kokoro -- begin
-        voices = null
-        // For Kokoro -- end
-
-        modelDir = null
-        ruleFsts = null
-        ruleFars = null
-        lexicon = null
-        lang = null
-        lang2 = null
-
-        // Please enable one and only one of the examples below
-
-        // Example 1:
-        // https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-vctk.tar.bz2
-        // modelDir = "vits-vctk"
-        // modelName = "vits-vctk.onnx"
-        // lexicon = "lexicon.txt"
-        // lang = "eng"
-
-        // Example 2:
-        // https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models
-        // https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-low.tar.bz2
-        // modelDir = "vits-piper-en_US-amy-low"
-        // modelName = "en_US-amy-low.onnx"
-        //
-        // Choose exactly one of the two text frontends below (not both):
-        //
-        // usePhonemize = true // option 1: phonemize the text with piper-phonemize; no extra files needed
-        // lexicon = "lexicon-en-us.txt" // option 2: lexicon file inside the model directory.
-        //   Download it from https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/lexicon-en-us.txt
-        //   A bare file name is looked up inside modelDir; a name containing
-        //   "/" is used as-is (relative to the assets root). A comma-separated
-        //   list names several lexicons, each resolved the same way.
-        //
-        // Neither option uses the espeak-ng-data directory shipped in the model
-        // package; delete it to make the APK smaller.
-        //
-        // lang = "eng"
-
-        // Example 3:
-        // https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-icefall-zh-aishell3.tar.bz2
-        // modelDir = "vits-icefall-zh-aishell3"
-        // modelName = "model.onnx"
-        // ruleFars = "vits-icefall-zh-aishell3/rule.far"
-        // lexicon = "lexicon.txt"
-        // lang = "zho"
-
-        // Example 4:
-        // https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/vits.html#csukuangfj-vits-zh-hf-fanchen-c-chinese-187-speakers
-        // modelDir = "vits-zh-hf-fanchen-C"
-        // modelName = "vits-zh-hf-fanchen-C.onnx"
-        // lexicon = "lexicon.txt"
-        // lang = "zho"
-
-        // Example 5:
-        // https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-coqui-de-css10.tar.bz2
-        // This model does not need lexicon or piper-phonemize
-        // modelDir = "vits-coqui-de-css10"
-        // modelName = "model.onnx"
-        // lang = "deu"
-
-        // Example 6
-        // vits-melo-tts-zh_en
-        // https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/vits.html#vits-melo-tts-zh-en-chinese-english-1-speaker
-        // modelDir = "vits-melo-tts-zh_en"
-        // modelName = "model.onnx"
-        // lexicon = "lexicon.txt"
-        // lang = "zho"
-        // lang2 = "eng"
-
-        // Example 7
-        // matcha-icefall-zh-baker
-        // https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/matcha.html#matcha-icefall-zh-baker-chinese-1-female-speaker
-        // modelDir = "matcha-icefall-zh-baker"
-        // acousticModelName = "model-steps-3.onnx"
-        // vocoder = "vocos-22khz-univ.onnx"
-        // lexicon = "lexicon.txt"
-        // lang = "zho"
-
-        // Example 8
-        // matcha-icefall-en_US-ljspeech
-        // https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/matcha.html#matcha-icefall-en-us-ljspeech-american-english-1-female-speaker
-        // modelDir = "matcha-icefall-en_US-ljspeech"
-        // acousticModelName = "model-steps-3.onnx"
-        // vocoder = "vocos-22khz-univ.onnx"
-        // usePhonemize = true // or lexicon = "lexicon-en-us.txt", see Example 2
-        // lang = "eng"
-
-        // Example 9
-        // kokoro-en-v0_19
-        // modelDir = "kokoro-en-v0_19"
-        // modelName = "model.onnx"
-        // voices = "voices.bin"
-        // usePhonemize = true // or lexicon = "lexicon-en-us.txt", see Example 2
-        // lang = "eng"
-
-        // Example 10
-        // kokoro-multi-lang-v1_0
-        // modelDir = "kokoro-multi-lang-v1_0"
-        // modelName = "model.onnx"
-        // voices = "voices.bin"
-        // lexicon = "kokoro-multi-lang-v1_0/lexicon-us-en.txt,kokoro-multi-lang-v1_0/lexicon-zh.txt"
-        // lang = "eng"
-        // lang2 = "zho"
-        // ruleFsts = "$modelDir/phone-zh.fst,$modelDir/date-zh.fst,$modelDir/number-zh.fst"
-        //
-        // This model supports many languages, e.g., English, Chinese, etc.
-        // We set lang to eng here.
-
-        // Example 11
-        // kitten-nano-en-v0_1-fp16
-        // modelDir = "kitten-nano-en-v0_1-fp16"
-        // modelName = "model.fp16.onnx"
-        // voices = "voices.bin"
-        // usePhonemize = true // or lexicon = "lexicon-en-us.txt", see Example 2
-        // lang = "eng"
-        // isKitten = true
-
-        // Example 12
-        // matcha-icefall-zh-en
-        // https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/matcha-icefall-zh-en.html
-        // modelDir = "matcha-icefall-zh-en"
-        // acousticModelName = "model-steps-3.onnx"
-        // vocoder = "vocos-16khz-univ.onnx"
-        // lexicon = "lexicon.txt"
-        // lang = "zho"
-
-        // Example 13
-        // supertonic-3-tts (supports 31 languages, default: English)
-        // https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models
-        // modelDir = "sherpa-onnx-supertonic-3-tts-int8-2026-05-11"
-        // isSupertonic = true
-        // durationPredictor = "duration_predictor.int8.onnx"
-        // textEncoder = "text_encoder.int8.onnx"
-        // vectorEstimator = "vector_estimator.int8.onnx"
-        // supertonicVocoder = "vocoder.int8.onnx"
-        // ttsJson = "tts.json"
-        // unicodeIndexer = "unicode_indexer.bin"
-        // voiceStyle = "voice.bin"
-        // supertonicLang = "en"  // ISO 639-1: en, zh, ja, ko, fr, de, es, etc.
-
-        // Example 14: Piper TTS on Qualcomm NPU (QNN HTP V79 - Samsung Galaxy S25 Ultra / SM8750)
-        modelDir = "pipertts-en-qnn-s25-ultra"
-        qnnBackendLib = "libQnnHtp.so"
-        qnnSystemLib = "libQnnSystem.so"
-        qnnContextBinary = "encoder.bin,sdp.bin,flow.bin,decoder.bin"
-        usePhonemize = true
-        lang = "eng"
+    fun getVoiceId(context: Context? = null): String {
+        return "piper-qnn-${getActiveLocale(context).toLanguageTag()}"
     }
 
     fun createTts(context: Context) {
-        Log.i(TAG, "Init Next-gen Kaldi TTS")
-        if (tts == null) {
-            initTts(context)
+        if (tts != null) return
+        synchronized(lock) {
+            if (tts == null) {
+                initTts(context.applicationContext)
+            }
         }
     }
 
     private fun initTts(context: Context) {
-        assets = context.assets
+        if (hasVoiceInAssetsOrFiles(context, FR_MODEL_DIR)) {
+            modelDir = FR_MODEL_DIR
+            lang = "fra"
+        } else {
+            modelDir = EN_MODEL_DIR
+            lang = "eng"
+        }
 
-        if (usePhonemize) {
-            // The espeak-ng-data embedded in piper-phonemize only feeds the
-            // phonemizer; sherpa-onnx itself does not use espeak-ng anymore.
+        if (usePhonemize && !phonemizerReady) {
             piperPhonemizeInitialize(context)
+            phonemizerReady = true
         }
 
-        val config = getOfflineTtsConfig(
-            modelDir = modelDir!!,
-            modelName = modelName ?: "",
-            acousticModelName = acousticModelName ?: "",
-            vocoder = vocoder ?: "",
-            voices = voices ?: "",
-            lexicon = lexicon ?: "",
-            dataDir = "",
-            dictDir = "",
-            ruleFsts = ruleFsts ?: "",
-            ruleFars = ruleFars ?: "",
-            isKitten = isKitten,
-            isSupertonic = isSupertonic,
-            durationPredictor = durationPredictor ?: "",
-            textEncoder = textEncoder ?: "",
-            vectorEstimator = vectorEstimator ?: "",
-            supertonicVocoder = supertonicVocoder ?: "",
-            ttsJson = ttsJson ?: "",
-            unicodeIndexer = unicodeIndexer ?: "",
-            voiceStyle = voiceStyle ?: "",
-            qnnBackendLib = qnnBackendLib ?: "",
-            qnnSystemLib = qnnSystemLib ?: "",
-            qnnContextBinary = qnnContextBinary ?: "",
-            qnnHtpPerfMode = qnnHtpPerfMode,
-        )
-
-        if (config.model.provider == "qnn") {
-            Log.i(TAG, "nativelibdir: ${context.applicationInfo.nativeLibraryDir}")
-            OfflineTts.prependAdspLibraryPath(context.applicationInfo.nativeLibraryDir)
-
-            if (config.model.vits.tokens.isNotEmpty()) {
-                val cfgAsset = "${modelDir!!}/config.json"
-                if (assetExists(context, cfgAsset)) {
-                    copyAssetToInternalStorage(context, cfgAsset)
-                }
-                config.model.vits.tokens = copyAssetToInternalStorage(context, config.model.vits.tokens)
-            }
-            if (config.model.vits.lexicon.isNotEmpty()) {
-                config.model.vits.lexicon = copyAssetListToInternalStorage(context, config.model.vits.lexicon)
-            }
-            if (config.model.vits.model.isNotEmpty()) {
-                config.model.vits.model = copyAssetListToInternalStorage(context, config.model.vits.model)
-            }
-            if (config.model.vits.qnnConfig.contextBinary.isNotEmpty()) {
-                config.model.vits.qnnConfig.contextBinary =
-                    copyAssetListToInternalStorage(context, config.model.vits.qnnConfig.contextBinary)
-            }
-            if (config.ruleFsts.isNotEmpty()) {
-                config.ruleFsts = copyAssetListToInternalStorage(context, config.ruleFsts)
-            }
-            if (config.ruleFars.isNotEmpty()) {
-                config.ruleFars = copyAssetListToInternalStorage(context, config.ruleFars)
-            }
-            assets = null
+        val cfgAsset = "$modelDir/config.json"
+        if (assetExists(context, cfgAsset)) {
+            copyAssetToInternalStorage(context, cfgAsset)
         }
+        val tokensPath = copyAssetToInternalStorage(context, "$modelDir/tokens.txt")
 
         speed = PreferenceHelper(context).getSpeed()
         speakerId = PreferenceHelper(context).getSid()
 
-        tts = OfflineTts(assetManager = assets, config = config)
+        var qnnError: Throwable? = null
+        if (hasQnnBinaries(context, modelDir)) {
+            try {
+                Log.i(TAG, "nativelibdir: ${context.applicationInfo.nativeLibraryDir}")
+                OfflineTts.prependAdspLibraryPath(context.applicationInfo.nativeLibraryDir)
+
+                val config = getOfflineTtsConfig(
+                    modelDir = modelDir,
+                    qnnBackendLib = qnnBackendLib,
+                    qnnSystemLib = qnnSystemLib,
+                    qnnContextBinary = qnnContextBinary,
+                )
+                config.model.vits.tokens = tokensPath
+                config.model.vits.qnnConfig.contextBinary =
+                    copyAssetListToInternalStorage(context, config.model.vits.qnnConfig.contextBinary)
+
+                tts = OfflineTts(assetManager = null, config = config)
+                activeBackend = "Qualcomm Hexagon NPU (QNN HTP V79)"
+                if (tts?.lang()?.startsWith("fr") == true) {
+                    lang = "fra"
+                }
+                return
+            } catch (e: Throwable) {
+                Log.e(TAG, "QNN NPU init failed, checking for CPU ONNX fallback", e)
+                qnnError = e
+            }
+        }
+
+        val onnxFallback = modelName ?: findOnnxFallback(context, modelDir)
+        if (onnxFallback != null) {
+            val cpuConfig = getOfflineTtsConfig(
+                modelDir = modelDir,
+                modelName = onnxFallback,
+                provider = "cpu",
+            )
+            cpuConfig.model.vits.tokens = tokensPath
+            cpuConfig.model.vits.model = copyAssetToInternalStorage(context, cpuConfig.model.vits.model)
+            tts = OfflineTts(assetManager = null, config = cpuConfig)
+            activeBackend = "CPU Fallback (ONNX Runtime)"
+            return
+        }
+
+        throw qnnError ?: IllegalStateException(
+            "No QNN context binaries or CPU fallback (.onnx) found in $modelDir"
+        )
+    }
+
+    private fun hasVoiceInAssetsOrFiles(context: Context, dir: String): Boolean {
+        val inAssets = runCatching { context.assets.list(dir)?.isNotEmpty() == true }.getOrDefault(false)
+        if (inAssets) return true
+        return File(context.filesDir, "$dir/tokens.txt").exists()
+    }
+
+    private fun hasQnnBinaries(context: Context, dir: String): Boolean {
+        return assetExists(context, "$dir/encoder.bin") ||
+            File(context.filesDir, "$dir/encoder.bin").exists()
+    }
+
+    private fun findOnnxFallback(context: Context, dir: String): String? {
+        val assetFiles = runCatching { context.assets.list(dir)?.toList().orEmpty() }.getOrDefault(emptyList())
+        val assetOnnx = assetFiles.firstOrNull { it.endsWith(".onnx") }
+        if (assetOnnx != null) return "$dir/$assetOnnx"
+
+        val dirFile = File(context.filesDir, dir)
+        val fileOnnx = dirFile.listFiles()?.firstOrNull { it.isFile && it.name.endsWith(".onnx") }
+        return fileOnnx?.let { "$dir/${it.name}" }
     }
 
     private fun assetExists(context: Context, path: String): Boolean {
@@ -322,30 +164,23 @@ object TtsEngine {
     }
 
     private fun copyAssetToInternalStorage(context: Context, path: String): String {
-        val targetRoot = context.filesDir
-        val outFile = java.io.File(targetRoot, path)
-
+        val outFile = File(context.filesDir, path)
         if (!assetExists(context, path)) {
             outFile.parentFile?.mkdirs()
-            Log.i(TAG, "$path does not exist in assets, return ${outFile.absolutePath}")
             return outFile.absolutePath
         }
-
         if (outFile.exists()) {
             val assetSize = context.assets.open(path).use { it.available() }
             if (outFile.length() == assetSize.toLong()) {
-                Log.i(TAG, "${outFile.absolutePath} already exists, skip copying")
                 return outFile.absolutePath
             }
         }
-
         outFile.parentFile?.mkdirs()
         context.assets.open(path).use { input ->
             outFile.outputStream().use { output ->
                 input.copyTo(output)
             }
         }
-        Log.i(TAG, "Copied $path to ${outFile.absolutePath}")
         return outFile.absolutePath
     }
 
@@ -360,10 +195,8 @@ object TtsEngine {
     fun phonemize(text: String): Array<IntArray> {
         var voice = tts?.lang() ?: ""
         if (voice.isEmpty()) {
-            Log.w(TAG, "The model has no language information. Falling back to en-us.")
-            voice = "en-us"
+            voice = if (lang == "fra") "fr" else "en-us"
         }
-        Log.i(TAG, "Phonemizer language: $voice")
         val result = piperPhonemizeText(text, voice)
             ?: throw RuntimeException("Failed to phonemize the text")
         try {

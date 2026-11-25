@@ -1,5 +1,0 @@
-# This file is only here to make sure built artifacts and other generated
-# files are not committed to the repository.
-/target/
-/gen/
-*.xcframework

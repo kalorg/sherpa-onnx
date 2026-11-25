@@ -1,1 +1,0 @@
-../../../../go-api-examples/hello-world/main.go

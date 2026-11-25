@@ -633,47 +633,6 @@ Ort::SessionOptions GetSessionOptionsImpl(
   return sess_opts;
 }
 
-Ort::SessionOptions GetSessionOptions(const OnlineModelConfig &config) {
-  return GetSessionOptionsImpl(config.num_threads,
-                               config.provider_config.provider,
-                               &config.provider_config);
-}
-
-Ort::SessionOptions GetSessionOptions(const OnlineModelConfig &config,
-                                      const std::string &model_type) {
-  /*
-    Transducer models : Only encoder will run with tensorrt,
-                        decoder and joiner will run with cuda
-  */
-  if (config.provider_config.provider == "trt" &&
-      (model_type == "decoder" || model_type == "joiner")) {
-    return GetSessionOptionsImpl(config.num_threads, "cuda",
-                                 &config.provider_config);
-  }
-
-  // The transducer decoder and joiner are tiny, latency-sensitive graphs.
-  // Keep them on CPU for OpenVINO: the encoder contains nearly all of the
-  // compute and is the graph that benefits from NPU acceleration.
-  std::string provider_name = config.provider_config.provider.substr(
-      0, config.provider_config.provider.find(':'));
-  if (ToLowerAscii(provider_name) == "openvino" &&
-      (model_type == "decoder" || model_type == "joiner")) {
-    return GetSessionOptionsImpl(config.num_threads, "cpu",
-                                 &config.provider_config);
-  }
-  return GetSessionOptionsImpl(config.num_threads,
-                               config.provider_config.provider,
-                               &config.provider_config);
-}
-
-Ort::SessionOptions GetSessionOptions(const OfflineLMConfig &config) {
-  return GetSessionOptionsImpl(config.lm_num_threads, config.lm_provider);
-}
-
-Ort::SessionOptions GetSessionOptions(const OnlineLMConfig &config) {
-  return GetSessionOptionsImpl(config.lm_num_threads, config.lm_provider);
-}
-
 Ort::SessionOptions GetSessionOptions(int32_t num_threads,
                                       const std::string &provider_str) {
   return GetSessionOptionsImpl(num_threads, provider_str);

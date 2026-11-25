@@ -1,3 +1,0 @@
-[patch.crates-io]
-sherpa-onnx = { path = "../sherpa-onnx/rust/sherpa-onnx" }
-sherpa-onnx-sys = { path = "../sherpa-onnx/rust/sherpa-onnx-sys" }

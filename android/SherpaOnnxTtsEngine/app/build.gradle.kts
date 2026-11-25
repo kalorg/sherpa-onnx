@@ -5,18 +5,21 @@ plugins {
 
 android {
     namespace = "com.k2fsa.sherpa.onnx.tts.engine"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.k2fsa.sherpa.onnx.tts.engine"
-        minSdk = 21
-        targetSdk = 34
-        versionCode = 20261122
-        versionName = "2.0.3"
+        minSdk = 24
+        targetSdk = 36
+        versionCode = 20261125
+        versionName = "2.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
+        }
+        ndk {
+            abiFilters += "arm64-v8a"
         }
     }
 
@@ -30,19 +33,22 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
     buildFeatures {
         compose = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.1"
+        kotlinCompilerExtensionVersion = "1.5.14"
     }
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -50,7 +56,6 @@ android {
 }
 
 dependencies {
-
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
     implementation("androidx.activity:activity-compose:1.8.2")
@@ -61,7 +66,6 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.9.0")
-    // piper-phonemize provides the text frontend for models without a lexicon
     implementation("com.github.csukuangfj.piper-phonemize:piper-phonemize:v1.6.1")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

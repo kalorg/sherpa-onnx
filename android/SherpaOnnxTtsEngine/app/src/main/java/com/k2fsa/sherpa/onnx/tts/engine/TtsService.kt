@@ -1,71 +1,27 @@
 package com.k2fsa.sherpa.onnx.tts.engine
 
 import android.media.AudioFormat
-import com.k2fsa.sherpa.onnx.GenerationConfig
 import android.speech.tts.SynthesisCallback
 import android.speech.tts.SynthesisRequest
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
 import android.speech.tts.Voice
 import android.util.Log
+import com.k2fsa.sherpa.onnx.GenerationConfig
 import java.util.Locale
-
-/*
-https://developer.android.com/reference/java/util/Locale#getISO3Language()
-https://developer.android.com/reference/java/util/Locale#getISO3Country()
-
-eng, USA,
-eng, USA, POSIX
-eng,
-eng, GBR
-afr,
-afr, NAM
-afr, ZAF
-agq
-agq, CMR
-aka,
-aka, GHA
-amh,
-amh, ETH
-ara,
-ara, 001
-ara, ARE
-ara, BHR,
-deu
-deu, AUT
-deu, BEL
-deu, CHE
-deu, ITA
-deu, ITA
-deu, LIE
-deu, LUX
-spa,
-spa, 419
-spa, ARG,
-spa, BRA
-fra,
-fra, BEL,
-fra, FRA,
-
-E  Failed to check TTS data, no activity found for Intent
-{ act=android.speech.tts.engine.CHECK_TTS_DATA pkg=com.k2fsa.sherpa.chapter5 })
-
-E Failed to get default language from engine com.k2fsa.sherpa.chapter5
-Engine failed voice data integrity check (null return)com.k2fsa.sherpa.chapter5
-Failed to get default language from engine com.k2fsa.sherpa.chapter5
-
-*/
+import kotlin.math.min
 
 class TtsService : TextToSpeechService() {
+    @Volatile
+    private var stopRequested: Boolean = false
+
     override fun onCreate() {
         Log.i(TAG, "onCreate tts service")
         super.onCreate()
-
-        // see https://github.com/Miserlou/Android-SDK-Samples/blob/master/TtsEngine/src/com/example/android/ttsengine/RobotSpeakTtsService.java#L68
-        onLoadLanguage(TtsEngine.lang, "", "")
-        if (TtsEngine.lang2 != null) {
-            onLoadLanguage(TtsEngine.lang2, "", "")
-        }
+        Thread {
+            runCatching { TtsEngine.createTts(applicationContext) }
+                .onFailure { Log.e(TAG, "Background TTS init failed", it) }
+        }.start()
     }
 
     override fun onDestroy() {
@@ -73,145 +29,182 @@ class TtsService : TextToSpeechService() {
         super.onDestroy()
     }
 
-    // Pali (pli) is not among Android's locales (Locale.getAvailableLocales()), so the default
-    // onGetVoices() finds no voice at all for this engine, and no app asks for "pli": apps such as
-    // T2S ask for the device's or the text's language and get LANG_NOT_SUPPORTED ("Speech engine
-    // is not responding"). Its one voice takes a request in any language and reads it as Pali.
-    private fun isPali(): Boolean = TtsEngine.lang == "pli"
+    private fun activeLocale(): Locale = TtsEngine.getActiveLocale(applicationContext)
 
-    private fun supports(lang: String): Boolean =
-        lang == TtsEngine.lang || lang == TtsEngine.lang2 || isPali()
+    private fun supports(lang: String?, country: String? = null): Int {
+        if (lang.isNullOrBlank()) return TextToSpeech.LANG_AVAILABLE
+        val norm = lang.lowercase(Locale.ROOT)
+        val locale = activeLocale()
+        val iso2 = locale.language.lowercase(Locale.ROOT)
+        val iso3 = runCatching { locale.isO3Language.lowercase(Locale.ROOT) }.getOrDefault("")
+        val langMatch = norm == iso2 || norm == iso3 ||
+            norm == TtsEngine.lang || norm == TtsEngine.lang2 ||
+            (iso2 == "fr" && (norm == "fra" || norm == "fre" || norm.startsWith("fr"))) ||
+            (iso2 == "en" && (norm == "eng" || norm.startsWith("en")))
 
-    // https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeechService#onislanguageavailable
+        if (!langMatch) return TextToSpeech.LANG_NOT_SUPPORTED
+
+        if (!country.isNullOrBlank()) {
+            val cNorm = country.uppercase(Locale.ROOT)
+            val c2 = locale.country.uppercase(Locale.ROOT)
+            val c3 = runCatching { locale.isO3Country.uppercase(Locale.ROOT) }.getOrDefault("")
+            if (cNorm == c2 || cNorm == c3) {
+                return TextToSpeech.LANG_COUNTRY_AVAILABLE
+            }
+        }
+        return TextToSpeech.LANG_AVAILABLE
+    }
+
     override fun onIsLanguageAvailable(_lang: String?, _country: String?, _variant: String?): Int {
-        val lang = _lang ?: ""
-
-        if (supports(lang)) {
-            return TextToSpeech.LANG_AVAILABLE
-        }
-
-        return TextToSpeech.LANG_NOT_SUPPORTED
+        return supports(_lang, _country)
     }
 
-    // The engine's own voice, for a language Android has no locale for (see isPali).
     override fun onGetVoices(): List<Voice> {
-        if (!isPali()) {
-            return super.onGetVoices()
+        val locale = activeLocale()
+        val voiceId = TtsEngine.getVoiceId(applicationContext)
+        return listOf(
+            Voice(
+                voiceId,
+                locale,
+                Voice.QUALITY_VERY_HIGH,
+                Voice.LATENCY_VERY_LOW,
+                false,
+                emptySet()
+            )
+        )
+    }
+
+    override fun onGetDefaultVoiceNameFor(lang: String?, country: String?, variant: String?): String? {
+        if (supports(lang, country) == TextToSpeech.LANG_NOT_SUPPORTED) {
+            return null
         }
-        return listOfNotNull(TtsEngine.lang, TtsEngine.lang2).map {
-            val locale = Locale(it)
-            Voice(locale.toLanguageTag(), locale, Voice.QUALITY_HIGH, Voice.LATENCY_NORMAL, false, emptySet())
+        return TtsEngine.getVoiceId(applicationContext)
+    }
+
+    override fun onIsValidVoiceName(voiceName: String?): Int {
+        if (voiceName.isNullOrBlank()) return TextToSpeech.ERROR
+        return if (voiceName == TtsEngine.getVoiceId(applicationContext) ||
+            voiceName.startsWith("piper-qnn-")
+        ) {
+            TextToSpeech.SUCCESS
+        } else {
+            TextToSpeech.ERROR
         }
     }
 
-    // TextToSpeech.setLanguage() takes the voice of this name from onGetVoices(): for any language, that one voice.
-    override fun onGetDefaultVoiceNameFor(lang: String?, country: String?, variant: String?): String? {
-        if (!isPali()) {
-            return super.onGetDefaultVoiceNameFor(lang, country, variant)
+    override fun onLoadVoice(voiceName: String?): Int {
+        if (onIsValidVoiceName(voiceName) != TextToSpeech.SUCCESS) {
+            return TextToSpeech.ERROR
         }
-        return Locale(TtsEngine.lang!!).toLanguageTag()
+        Thread {
+            runCatching { TtsEngine.createTts(applicationContext) }
+        }.start()
+        return TextToSpeech.SUCCESS
     }
 
     override fun onGetLanguage(): Array<String> {
-        return arrayOf(TtsEngine.lang!!, "", "")
+        val locale = activeLocale()
+        val iso3Lang = runCatching { locale.isO3Language }.getOrDefault(TtsEngine.lang)
+        val iso3Country = runCatching { locale.isO3Country }.getOrDefault("")
+        return arrayOf(iso3Lang, iso3Country, "")
     }
 
-    // https://developer.android.com/reference/kotlin/android/speech/tts/TextToSpeechService#onLoadLanguage(kotlin.String,%20kotlin.String,%20kotlin.String)
     override fun onLoadLanguage(_lang: String?, _country: String?, _variant: String?): Int {
-        Log.i(TAG, "onLoadLanguage: $_lang, $_country")
-        val lang = _lang ?: ""
-
-        return if (supports(lang)) {
-            Log.i(TAG, "creating tts, lang :$lang")
-            TtsEngine.createTts(application)
-            TextToSpeech.LANG_AVAILABLE
-        } else {
-            Log.i(TAG, "lang $lang not supported, tts engine lang: ${TtsEngine.lang}, ${TtsEngine.lang2}")
-            TextToSpeech.LANG_NOT_SUPPORTED
+        val avail = supports(_lang, _country)
+        if (avail == TextToSpeech.LANG_NOT_SUPPORTED) {
+            return TextToSpeech.LANG_NOT_SUPPORTED
         }
+        Thread {
+            runCatching { TtsEngine.createTts(applicationContext) }
+        }.start()
+        return avail
     }
 
-    override fun onStop() {}
+    override fun onStop() {
+        stopRequested = true
+    }
 
     override fun onSynthesizeText(request: SynthesisRequest?, callback: SynthesisCallback?) {
-        if (request == null || callback == null) {
-            return
-        }
+        if (request == null || callback == null) return
+        stopRequested = false
+
         val language = request.language
         val country = request.country
         val variant = request.variant
-        val text = request.charSequenceText.toString()
-        // Map Android TTS speech rate (where 100 == normal) to engine speed (1.0 == normal)
-        // Allow per-request override from external apps; fallback to engine default if absent.
+        val text = request.charSequenceText?.toString().orEmpty()
+
         val rate = runCatching { request.speechRate }.getOrDefault(-1)
         val engineSpeed = if (rate > 0) {
-            // Map 100 -> 1.0f
-            val mapped = rate / 100.0f
-            mapped.coerceIn(MIN_TTS_SPEED, MAX_TTS_SPEED)
+            (rate / 100.0f).coerceIn(MIN_TTS_SPEED, MAX_TTS_SPEED)
         } else {
-            // Fallback to current engine/global setting
             TtsEngine.speed
         }
 
-        val ret = onIsLanguageAvailable(language, country, variant)
-        if (ret == TextToSpeech.LANG_NOT_SUPPORTED) {
+        if (onIsLanguageAvailable(language, country, variant) == TextToSpeech.LANG_NOT_SUPPORTED) {
             callback.error()
             return
         }
-        Log.i(TAG, "text: $text, engineSpeed: $engineSpeed")
-        val tts = TtsEngine.tts!!
 
-        // Note that AudioFormat.ENCODING_PCM_FLOAT requires API level >= 24
-        // callback.start(tts.sampleRate(), AudioFormat.ENCODING_PCM_FLOAT, 1)
+        try {
+            TtsEngine.createTts(applicationContext)
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to init TTS engine", e)
+            callback.error()
+            return
+        }
+
+        val tts = TtsEngine.tts
+        if (tts == null) {
+            callback.error()
+            return
+        }
 
         callback.start(tts.sampleRate(), AudioFormat.ENCODING_PCM_16BIT, 1)
 
-        if (text.isBlank() || text.isEmpty()) {
+        if (text.isBlank()) {
             callback.done()
             return
         }
 
         val ttsCallback: (FloatArray) -> Int = fun(floatSamples): Int {
-            // convert FloatArray to ByteArray
+            if (stopRequested) return 0
             val samples = floatArrayToByteArray(floatSamples)
             val maxBufferSize: Int = callback.maxBufferSize
             var offset = 0
-            while (offset < samples.size) {
-                val bytesToWrite = Math.min(maxBufferSize, samples.size - offset)
+            while (offset < samples.size && !stopRequested) {
+                val bytesToWrite = min(maxBufferSize, samples.size - offset)
                 callback.audioAvailable(samples, offset, bytesToWrite)
                 offset += bytesToWrite
             }
-
-            // 1 means to continue
-            // 0 means to stop
-            return 1
+            return if (stopRequested) 0 else 1
         }
 
-        Log.i(TAG, "text: $text")
-        val genConfig = GenerationConfig(sid = TtsEngine.speakerId, speed = engineSpeed)
-        var genText = text
-        if (TtsEngine.usePhonemize) {
-            // Phonemize outside of sherpa-onnx with piper-phonemize and pass
-            // the phoneme codepoints. The espeak-ng voice is taken from the
-            // model metadata.
-            genConfig.phonemeCodepoints = TtsEngine.phonemize(text)
-            // The text has already been phonemized; pass an empty string.
-            genText = ""
+        try {
+            val genConfig = GenerationConfig(sid = TtsEngine.speakerId, speed = engineSpeed)
+            var genText = text
+            if (TtsEngine.usePhonemize) {
+                genConfig.phonemeCodepoints = TtsEngine.phonemize(text)
+                genText = ""
+            }
+            tts.generateWithConfigAndCallback(
+                text = genText,
+                config = genConfig,
+                callback = ttsCallback,
+            )
+            if (!stopRequested) {
+                callback.done()
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Synthesis failed", e)
+            callback.error()
         }
-        tts.generateWithConfigAndCallback(
-            text = genText,
-            config = genConfig,
-            callback = ttsCallback,
-        )
-
-        callback.done()
     }
 
     private fun floatArrayToByteArray(audio: FloatArray): ByteArray {
-        // byteArray is actually a ShortArray
         val byteArray = ByteArray(audio.size * 2)
         for (i in audio.indices) {
-            val sample = (audio[i] * 32767).toInt()
+            val clamped = audio[i].coerceIn(-1.0f, 1.0f)
+            val sample = (clamped * 32767).toInt()
             byteArray[2 * i] = sample.toByte()
             byteArray[2 * i + 1] = (sample shr 8).toByte()
         }

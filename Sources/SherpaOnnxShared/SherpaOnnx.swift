@@ -1,1 +1,0 @@
-../../swift-api-examples/SherpaOnnx.swift

@@ -1,1 +1,0 @@
-../nano_v2/test.py

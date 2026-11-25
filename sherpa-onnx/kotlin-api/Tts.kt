@@ -7,101 +7,16 @@ data class OfflineTtsVitsModelConfig(
     var model: String = "",
     var lexicon: String = "",
     var tokens: String = "",
-    var dataDir: String = "",  // deprecated, ignored; use lexicon or phonemeCodepoints
-    var dictDir: String = "", // unused
+    var dataDir: String = "",
+    var dictDir: String = "",
     var noiseScale: Float = 0.667f,
     var noiseScaleW: Float = 0.8f,
     var lengthScale: Float = 1.0f,
     var qnnConfig: QnnConfig = QnnConfig(),
 )
 
-data class OfflineTtsMatchaModelConfig(
-    var acousticModel: String = "",
-    var vocoder: String = "",
-    var lexicon: String = "",
-    var tokens: String = "",
-    var dataDir: String = "",  // deprecated, ignored; use lexicon or phonemeCodepoints
-    var dictDir: String = "", // unused
-    var noiseScale: Float = 1.0f,
-    var lengthScale: Float = 1.0f,
-)
-
-data class OfflineTtsKokoroModelConfig(
-    var model: String = "",
-    var voices: String = "",
-    var tokens: String = "",
-    var dataDir: String = "",  // deprecated, ignored; use lexicon or phonemeCodepoints
-    var lexicon: String = "",
-    var lang: String = "",
-    var dictDir: String = "", // unused
-    var lengthScale: Float = 1.0f,
-)
-
-data class OfflineTtsZipVoiceModelConfig(
-    var tokens: String = "",
-    var encoder: String = "",
-    var decoder: String = "",
-    var vocoder: String = "",
-    var dataDir: String = "",  // deprecated, ignored; use lexicon or phonemeCodepoints
-    var lexicon: String = "",
-    var featScale: Float = 0.1f,
-    var tShift: Float = 0.5f,
-    var targetRms: Float = 0.1f,
-    var guidanceScale: Float = 1.0f,
-)
-
-data class OfflineTtsKittenModelConfig(
-    var model: String = "",
-    var voices: String = "",
-    var tokens: String = "",
-    var dataDir: String = "",  // deprecated, ignored; use lexicon or phonemeCodepoints
-    var lengthScale: Float = 1.0f,
-    var lexicon: String = "",
-)
-
-/**
- * Configuration for Pocket TTS models.
- *
- * See https://k2-fsa.github.io/sherpa/onnx/tts/pocket/index.html for details.
- *
- * @property lmFlow Path to the LM flow model (.onnx)
- * @property lmMain Path to the LM main model (.onnx)
- * @property encoder Path to the encoder model (.onnx)
- * @property decoder Path to the decoder model (.onnx)
- * @property textConditioner Path to the text conditioner model (.onnx)
- * @property vocabJson Path to vocabulary JSON file
- * @property tokenScoresJson Path to token scores JSON file
- */
-data class OfflineTtsPocketModelConfig(
-  var lmFlow: String = "",
-  var lmMain: String = "",
-  var encoder: String = "",
-  var decoder: String = "",
-  var textConditioner: String = "",
-  var vocabJson: String = "",
-  var tokenScoresJson: String = "",
-  var voiceEmbeddingCacheCapacity: Int = 50,
-)
-
-data class OfflineTtsSupertonicModelConfig(
-  var durationPredictor: String = "",
-  var textEncoder: String = "",
-  var vectorEstimator: String = "",
-  var vocoder: String = "",
-  var ttsJson: String = "",
-  var unicodeIndexer: String = "",
-  var voiceStyle: String = "",
-)
-
 data class OfflineTtsModelConfig(
     var vits: OfflineTtsVitsModelConfig = OfflineTtsVitsModelConfig(),
-    var matcha: OfflineTtsMatchaModelConfig = OfflineTtsMatchaModelConfig(),
-    var kokoro: OfflineTtsKokoroModelConfig = OfflineTtsKokoroModelConfig(),
-    var zipvoice: OfflineTtsZipVoiceModelConfig = OfflineTtsZipVoiceModelConfig(),
-    var kitten: OfflineTtsKittenModelConfig = OfflineTtsKittenModelConfig(),
-    var pocket: OfflineTtsPocketModelConfig = OfflineTtsPocketModelConfig(),
-    var supertonic: OfflineTtsSupertonicModelConfig = OfflineTtsSupertonicModelConfig(),
-
     var numThreads: Int = 1,
     var debug: Boolean = false,
     var provider: String = "cpu",
@@ -138,12 +53,8 @@ data class GenerationConfig(
     var referenceText: String? = null,
     var numSteps: Int = 5,
     var extra: Map<String, String>? = null,
-    // Pre-phonemized input as Unicode codepoints. One inner array per
-    // sentence. When set, it is used in place of the text argument.
-    // Mutually exclusive with tokens.
+    // Pre-phonemized input as Unicode codepoints (one inner array per sentence).
     var phonemeCodepoints: Array<IntArray>? = null,
-    // Pre-tokenized input, e.g. Chinese pinyin like "zhong1". One inner array
-    // per sentence. Mutually exclusive with phonemeCodepoints.
     var tokens: Array<Array<String>>? = null
 )
 
@@ -168,7 +79,7 @@ class OfflineTts(
 
     fun numSpeakers() = getNumSpeakers(ptr)
 
-    // Language/voice of the model, e.g., "en-us". Empty if not available.
+    // Language/voice of the model, e.g., "fr", "en-us".
     fun lang() = getLang(ptr)
 
     fun generate(
@@ -195,8 +106,8 @@ class OfflineTts(
     }
 
     fun generateWithConfig(
-      text: String,
-      config: GenerationConfig
+        text: String,
+        config: GenerationConfig
     ): GeneratedAudio {
         return generateWithConfigImpl(ptr, text, config, null)
     }
@@ -252,10 +163,6 @@ class OfflineTts(
     private external fun getNumSpeakers(ptr: Long): Int
     private external fun getLang(ptr: Long): String
 
-    // The returned array has two entries:
-    //  - the first entry is an 1-D float array containing audio samples.
-    //    Each sample is normalized to the range [-1, 1]
-    //  - the second entry is the sample rate
     private external fun generateImpl(
         ptr: Long,
         text: String,
@@ -270,7 +177,6 @@ class OfflineTts(
         speed: Float = 1.0f,
         callback: (samples: FloatArray) -> Int
     ): GeneratedAudio
-
 
     private external fun generateWithConfigImpl(
         ptr: Long,
@@ -289,105 +195,34 @@ class OfflineTts(
     }
 }
 
-// please refer to
-// https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/index.html
-// to download models
+/**
+ * Build an OfflineTtsConfig for Piper / VITS TTS:
+ * - Qualcomm Hexagon V79 NPU (S25 Ultra) when qnnContextBinary / qnnBackendLib is provided
+ * - CPU ONNX Runtime fallback when modelName (.onnx) is provided with provider = "cpu"
+ */
 fun getOfflineTtsConfig(
     modelDir: String,
-    modelName: String = "", // for VITS
-    acousticModelName: String = "", // for Matcha
-    vocoder: String = "", // for Matcha
-    voices: String = "", // for Kokoro or kitten
+    modelName: String = "",
     lexicon: String = "",
-    dataDir: String = "", // deprecated, ignored; use lexicon or phonemeCodepoints
-    dictDir: String = "", // unused
+    dataDir: String = "",
+    dictDir: String = "",
     ruleFsts: String = "",
     ruleFars: String = "",
     numThreads: Int? = null,
-    isKitten: Boolean = false,
-    isSupertonic: Boolean = false,
-    durationPredictor: String = "", // for Supertonic
-    textEncoder: String = "", // for Supertonic
-    vectorEstimator: String = "", // for Supertonic
-    supertonicVocoder: String = "", // for Supertonic
-    ttsJson: String = "", // for Supertonic
-    unicodeIndexer: String = "", // for Supertonic
-    voiceStyle: String = "", // for Supertonic
-    isZipvoice: Boolean = false,
-    zipvoiceEncoder: String = "", // for ZipVoice
-    zipvoiceDecoder: String = "", // for ZipVoice
-    zipvoiceVocoder: String = "", // for ZipVoice
-    featScale: Float = 0.1f, // for ZipVoice
-    tShift: Float = 0.5f, // for ZipVoice
-    targetRms: Float = 0.1f, // for ZipVoice
-    guidanceScale: Float = 1.0f, // for ZipVoice
-    isPocket: Boolean = false,
-    lmFlow: String = "", // for Pocket
-    lmMain: String = "", // for Pocket
-    pocketEncoder: String = "", // for Pocket
-    pocketDecoder: String = "", // for Pocket
-    textConditioner: String = "", // for Pocket
-    vocabJson: String = "", // for Pocket
-    tokenScoresJson: String = "", // for Pocket
-    voiceEmbeddingCacheCapacity: Int = 50, // for Pocket
     provider: String = "cpu",
     qnnBackendLib: String = "",
     qnnSystemLib: String = "",
     qnnContextBinary: String = "",
     qnnHtpPerfMode: Boolean = false,
 ): OfflineTtsConfig {
-    // For Matcha TTS, please set
-    // acousticModelName, vocoder
+    val numberOfThreads = numThreads ?: 2
 
-    // For Kokoro TTS, please set
-    // modelName, voices
-
-    // For Kitten TTS, please set
-    // modelName, voices, isKitten
-
-    // For VITS, please set
-    // modelName (or qnnContextBinary when using QNN)
-
-    // For Supertonic TTS, please set
-    // isSupertonic, durationPredictor, textEncoder, vectorEstimator,
-    // supertonicVocoder, ttsJson, unicodeIndexer, voiceStyle
-
-    val numberOfThreads = if (numThreads != null) {
-        numThreads
-    } else if (voices.isNotEmpty()) {
-        // for Kokoro and Kitten TTS models, we use more threads
-        4
-    } else {
-        2
+    if (modelName.isEmpty() && qnnContextBinary.isEmpty()) {
+        throw IllegalArgumentException(
+            "Please specify a Piper TTS model (qnnContextBinary for NPU or modelName for CPU ONNX)"
+        )
     }
 
-    if (!isSupertonic && !isZipvoice && !isPocket && modelName.isEmpty() &&
-        qnnContextBinary.isEmpty() && acousticModelName.isEmpty()
-    ) {
-        throw IllegalArgumentException("Please specify a TTS model")
-    }
-
-    if (modelName.isNotEmpty() && acousticModelName.isNotEmpty()) {
-        throw IllegalArgumentException("Please specify either a VITS or a Matcha model, but not both")
-    }
-
-    if (acousticModelName.isNotEmpty() && vocoder.isEmpty()) {
-        throw IllegalArgumentException("Please provide vocoder for Matcha TTS")
-    }
-
-    if (isZipvoice && zipvoiceEncoder.isEmpty()) {
-        throw IllegalArgumentException("Please provide encoder for ZipVoice")
-    }
-
-    if (isPocket && lmFlow.isEmpty()) {
-        throw IllegalArgumentException("Please provide lmFlow for Pocket TTS")
-    }
-
-    // Resolve the lexicon path(s): "" stays "" (e.g. when the text is
-    // pre-phonemized via GenerationConfig.phonemeCodepoints and no lexicon is
-    // used). Each entry of a comma-separated list is resolved on its own: a
-    // bare filename is looked up inside modelDir, while a name containing "/"
-    // is used as-is (e.g. a path relative to the assets root).
     val lexiconPath = if (lexicon.isEmpty()) {
         lexicon
     } else {
@@ -414,105 +249,19 @@ fun getOfflineTtsConfig(
         }
     }
 
-    val vits = if ((modelName.isNotEmpty() || qnnContextBinary.isNotEmpty()) && voices.isEmpty() && !isSupertonic) {
-        OfflineTtsVitsModelConfig(
-            model = resolvedModelPath,
-            lexicon = lexiconPath,
-            tokens = "$modelDir/tokens.txt",
-            dataDir = dataDir,
-            qnnConfig = QnnConfig(
-                backendLib = qnnBackendLib,
-                systemLib = qnnSystemLib,
-                contextBinary = resolvedQnnContextBinary,
-                htpPerfMode = qnnHtpPerfMode,
-            ),
-        )
-    } else {
-        OfflineTtsVitsModelConfig()
-    }
-
-    val matcha = if (acousticModelName.isNotEmpty()) {
-        OfflineTtsMatchaModelConfig(
-            acousticModel = "$modelDir/$acousticModelName",
-            vocoder = vocoder,
-            lexicon = lexiconPath,
-            tokens = "$modelDir/tokens.txt",
-            dataDir = dataDir,
-        )
-    } else {
-        OfflineTtsMatchaModelConfig()
-    }
-
-    val kokoro = if (voices.isNotEmpty() && !isKitten && !isSupertonic) {
-        OfflineTtsKokoroModelConfig(
-            model = "$modelDir/$modelName",
-            voices = "$modelDir/$voices",
-            tokens = "$modelDir/tokens.txt",
-            dataDir = dataDir,
-            lexicon = lexiconPath,
-        )
-    } else {
-        OfflineTtsKokoroModelConfig()
-    }
-
-    val kitten = if (isKitten) {
-        OfflineTtsKittenModelConfig(
-            model = "$modelDir/$modelName",
-            voices = "$modelDir/$voices",
-            tokens = "$modelDir/tokens.txt",
-            dataDir = dataDir,
-            lexicon = lexiconPath,
-        )
-    } else {
-        OfflineTtsKittenModelConfig()
-    }
-
-    val supertonic = if (isSupertonic) {
-        OfflineTtsSupertonicModelConfig(
-            durationPredictor = "$modelDir/$durationPredictor",
-            textEncoder = "$modelDir/$textEncoder",
-            vectorEstimator = "$modelDir/$vectorEstimator",
-            vocoder = "$modelDir/$supertonicVocoder",
-            ttsJson = "$modelDir/$ttsJson",
-            unicodeIndexer = "$modelDir/$unicodeIndexer",
-            voiceStyle = "$modelDir/$voiceStyle",
-        )
-    } else {
-        OfflineTtsSupertonicModelConfig()
-    }
-
-    val zipvoice = if (isZipvoice) {
-        OfflineTtsZipVoiceModelConfig(
-            tokens = "$modelDir/tokens.txt",
-            encoder = "$modelDir/$zipvoiceEncoder",
-            decoder = "$modelDir/$zipvoiceDecoder",
-            // The vocoder ships separately from the model package (e.g.
-            // vocos_24khz.onnx), so it is used as given, like Matcha's.
-            vocoder = zipvoiceVocoder,
-            lexicon = lexiconPath,
-            featScale = featScale,
-            tShift = tShift,
-            targetRms = targetRms,
-            guidanceScale = guidanceScale,
-        )
-    } else {
-        OfflineTtsZipVoiceModelConfig()
-    }
-
-    val pocket = if (isPocket) {
-        OfflineTtsPocketModelConfig(
-            lmFlow = "$modelDir/$lmFlow",
-            lmMain = "$modelDir/$lmMain",
-            encoder = "$modelDir/$pocketEncoder",
-            decoder = "$modelDir/$pocketDecoder",
-            textConditioner = "$modelDir/$textConditioner",
-            vocabJson = "$modelDir/$vocabJson",
-            tokenScoresJson = "$modelDir/$tokenScoresJson",
-            voiceEmbeddingCacheCapacity = voiceEmbeddingCacheCapacity,
-        )
-    } else {
-        OfflineTtsPocketModelConfig()
-    }
+    val vits = OfflineTtsVitsModelConfig(
+        model = resolvedModelPath,
+        lexicon = lexiconPath,
+        tokens = "$modelDir/tokens.txt",
+        dataDir = dataDir,
+        dictDir = dictDir,
+        qnnConfig = QnnConfig(
+            backendLib = qnnBackendLib,
+            systemLib = qnnSystemLib,
+            contextBinary = resolvedQnnContextBinary,
+            htpPerfMode = qnnHtpPerfMode,
+        ),
+    )
 
     val actualProvider = if (qnnContextBinary.isNotEmpty() || qnnBackendLib.isNotEmpty()) {
         "qnn"
@@ -523,12 +272,6 @@ fun getOfflineTtsConfig(
     return OfflineTtsConfig(
         model = OfflineTtsModelConfig(
             vits = vits,
-            matcha = matcha,
-            kokoro = kokoro,
-            zipvoice = zipvoice,
-            kitten = kitten,
-            pocket = pocket,
-            supertonic = supertonic,
             numThreads = numberOfThreads,
             debug = actualProvider == "qnn",
             provider = actualProvider,

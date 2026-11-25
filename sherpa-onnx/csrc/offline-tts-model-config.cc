@@ -4,6 +4,7 @@
 
 #include "sherpa-onnx/csrc/offline-tts-model-config.h"
 
+#include <sstream>
 #include <string>
 
 #include "sherpa-onnx/csrc/macros.h"
@@ -12,12 +13,6 @@ namespace sherpa_onnx {
 
 void OfflineTtsModelConfig::Register(ParseOptions *po) {
   vits.Register(po);
-  matcha.Register(po);
-  kokoro.Register(po);
-  zipvoice.Register(po);
-  kitten.Register(po);
-  pocket.Register(po);
-  supertonic.Register(po);
 
   po->Register("num-threads", &num_threads,
                "Number of threads to run the neural network");
@@ -26,7 +21,7 @@ void OfflineTtsModelConfig::Register(ParseOptions *po) {
                "true to print model information while loading it.");
 
   po->Register("provider", &provider,
-               "Specify a provider to use: cpu, cuda, coreml");
+               "Specify a provider to use: cpu, qnn");
 }
 
 bool OfflineTtsModelConfig::Validate() const {
@@ -39,31 +34,7 @@ bool OfflineTtsModelConfig::Validate() const {
     return vits.Validate();
   }
 
-  if (!matcha.acoustic_model.empty()) {
-    return matcha.Validate();
-  }
-
-  if (!zipvoice.decoder.empty()) {
-    return zipvoice.Validate();
-  }
-
-  if (!kokoro.model.empty()) {
-    return kokoro.Validate();
-  }
-
-  if (!kitten.model.empty()) {
-    return kitten.Validate();
-  }
-
-  if (!pocket.lm_flow.empty()) {
-    return pocket.Validate();
-  }
-
-  if (!supertonic.tts_json.empty()) {
-    return supertonic.Validate();
-  }
-
-  SHERPA_ONNX_LOGE("Please provide exactly one tts model.");
+  SHERPA_ONNX_LOGE("Please provide a Piper/VITS TTS model (QNN or ONNX).");
 
   return false;
 }
@@ -73,12 +44,6 @@ std::string OfflineTtsModelConfig::ToString() const {
 
   os << "OfflineTtsModelConfig(";
   os << "vits=" << vits.ToString() << ", ";
-  os << "matcha=" << matcha.ToString() << ", ";
-  os << "kokoro=" << kokoro.ToString() << ", ";
-  os << "zipvoice=" << zipvoice.ToString() << ", ";
-  os << "kitten=" << kitten.ToString() << ", ";
-  os << "pocket=" << pocket.ToString() << ", ";
-  os << "supertonic=" << supertonic.ToString() << ", ";
   os << "num_threads=" << num_threads << ", ";
   os << "debug=" << (debug ? "True" : "False") << ", ";
   os << "provider=\"" << provider << "\")";

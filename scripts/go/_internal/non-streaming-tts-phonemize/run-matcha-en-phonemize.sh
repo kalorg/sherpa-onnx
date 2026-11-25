@@ -1,1 +1,0 @@
-../../../../go-api-examples/non-streaming-tts-phonemize/run-matcha-en-phonemize.sh

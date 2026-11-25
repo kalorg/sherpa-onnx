@@ -1,1 +1,0 @@
-../../../../go-api-examples/vad-spoken-language-identification/main.go
