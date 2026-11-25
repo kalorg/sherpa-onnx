@@ -21,8 +21,52 @@ import java.util.Locale
  */
 object AppLog {
     private const val TAG = "SherpaOnnxTts"
+    private const val LOG_FILE_NAME = "sherpa_app_logs.txt"
+    private const val NPU_INIT_MARKER = "npu_init_in_progress.marker"
     private val memoryLogs = StringBuilder()
     private val listeners = mutableListOf<() -> Unit>()
+    private var logFile: File? = null
+
+    @Synchronized
+    fun init(context: Context) {
+        if (logFile == null) {
+            val f = File(context.filesDir, LOG_FILE_NAME)
+            logFile = f
+            if (f.exists() && f.length() > 0) {
+                runCatching {
+                    val prev = f.readText()
+                    memoryLogs.append("--- PREVIOUS SESSION LOGS ---\n")
+                    memoryLogs.append(prev.takeLast(12000))
+                    memoryLogs.append("--- NEW SESSION START ---\n")
+                }
+            }
+        }
+    }
+
+    fun markNpuInitStart(context: Context, modelDir: String) {
+        runCatching {
+            File(context.filesDir, NPU_INIT_MARKER).writeText("$modelDir|${System.currentTimeMillis()}")
+        }
+    }
+
+    fun markNpuInitDone(context: Context) {
+        runCatching {
+            File(context.filesDir, NPU_INIT_MARKER).delete()
+        }
+    }
+
+    fun didPreviousNpuInitCrash(context: Context): String? {
+        return runCatching {
+            val marker = File(context.filesDir, NPU_INIT_MARKER)
+            if (marker.exists()) {
+                val info = marker.readText()
+                marker.delete()
+                info
+            } else {
+                null
+            }
+        }.getOrNull()
+    }
 
     @Synchronized
     fun i(msg: String) {
@@ -45,7 +89,11 @@ object AppLog {
     @Synchronized
     private fun append(level: String, text: String) {
         val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT).format(Date())
-        memoryLogs.append("[$time][$level] ").append(text).append("\n")
+        val line = "[$time][$level] $text\n"
+        memoryLogs.append(line)
+        runCatching {
+            logFile?.appendText(line)
+        }
         notifyListeners()
     }
 
@@ -143,6 +191,7 @@ object AppLog {
     @Synchronized
     fun clear() {
         memoryLogs.setLength(0)
+        runCatching { logFile?.writeText("") }
         notifyListeners()
     }
 }

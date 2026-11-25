@@ -94,7 +94,7 @@ object TtsManager {
     ): OfflineTts {
         val appContext = context.applicationContext
         val targetDir = preferredModelDir ?: if (activeModelDir.isNotEmpty()) activeModelDir else getActiveModelDir(appContext)
-        val mode = forceMode ?: forcedBackendMode
+        var mode = forceMode ?: forcedBackendMode
 
         ttsInstance?.let {
             if (activeModelDir == targetDir && forcedBackendMode == mode) return it
@@ -110,8 +110,16 @@ object TtsManager {
             activeModelDir = modelDir
             forcedBackendMode = mode
 
+            AppLog.init(appContext)
             AppLog.i("--- TTS INITIALIZATION START ---")
             AppLog.i("Target voice: $modelDir | Mode: $mode")
+
+            val prevCrash = AppLog.didPreviousNpuInitCrash(appContext)
+            if (prevCrash != null && mode == "auto") {
+                AppLog.w("ALERT: Detected previous native crash during NPU initialization ($prevCrash). Auto-switching this boot to CPU fallback so you can view/copy logs!")
+                mode = "cpu"
+                forcedBackendMode = "cpu"
+            }
 
             if (!phonemizerReady) {
                 AppLog.i("Initializing Piper phonemizer native libraries...")
@@ -149,15 +157,18 @@ object TtsManager {
 
                     AppLog.i("Context binaries staged: ${qnnConfig.model.vits.qnnConfig.contextBinary}")
                     AppLog.i("Instantiating native OfflineTts (QNN HTP V79)...")
+                    AppLog.markNpuInitStart(appContext, modelDir)
                     val qnnInitStart = System.currentTimeMillis()
                     val created = OfflineTts(assetManager = null, config = qnnConfig)
                     val qnnElapsed = System.currentTimeMillis() - qnnInitStart
+                    AppLog.markNpuInitDone(appContext)
 
                     activeBackend = "Qualcomm Hexagon NPU (QNN HTP V79)"
                     ttsInstance = created
                     AppLog.i("SUCCESS: Qualcomm NPU TTS ready in $qnnElapsed ms (sampleRate=${created.sampleRate()}, lang=${created.lang()})")
                     return created
                 } catch (e: Throwable) {
+                    AppLog.markNpuInitDone(appContext)
                     AppLog.w("Qualcomm NPU init failed: ${e.message}", e)
                     qnnError = e
                     if (mode == "npu") {

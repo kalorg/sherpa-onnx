@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppLog.init(applicationContext)
         setContentView(R.layout.activity_main)
 
         text = findViewById(R.id.text)

@@ -45,12 +45,16 @@ class QnnBackend::Impl {
   }
 
   ~Impl() {
-    if (context_handle_) {
-      auto ret = qnn_interface_.contextFree(context_handle_, nullptr);
-      if (ret != QNN_SUCCESS) {
-        SHERPA_ONNX_LOGE("Failed to call contextFree: %d", static_cast<int>(ret));
+    for (auto it = context_handles_.rbegin(); it != context_handles_.rend(); ++it) {
+      if (*it) {
+        auto ret = qnn_interface_.contextFree(*it, nullptr);
+        if (ret != QNN_SUCCESS) {
+          SHERPA_ONNX_LOGE("Failed to call contextFree: %d", static_cast<int>(ret));
+        }
       }
     }
+    context_handles_.clear();
+    context_handle_ = nullptr;
 
     if (htp_perf_infra_ && htp_power_config_id_ != 0) {
       auto ret = htp_perf_infra_->destroyPowerConfigId(htp_power_config_id_);
@@ -91,9 +95,17 @@ class QnnBackend::Impl {
     auto ret = qnn_interface_.contextCreate(backend_handle_, device_handle_,
                                             context_config_, &context_handle_);
     SHERPA_ONNX_QNN_CHECK(ret, "Failed to call contextCreate");
+    if (context_handle_) {
+      context_handles_.push_back(context_handle_);
+    }
   }
 
-  void InitContext(Qnn_ContextHandle_t t) { context_handle_ = t; }
+  void InitContext(Qnn_ContextHandle_t t) {
+    context_handle_ = t;
+    if (t) {
+      context_handles_.push_back(t);
+    }
+  }
 
   Qnn_LogHandle_t LogHandle() const { return log_handle_; }
 
@@ -395,6 +407,7 @@ class QnnBackend::Impl {
   Qnn_DeviceHandle_t device_handle_ = nullptr;
 
   Qnn_ContextHandle_t context_handle_ = nullptr;
+  std::vector<Qnn_ContextHandle_t> context_handles_;
   const QnnContext_Config_t **context_config_ = nullptr;
   bool is_initialized_ = false;
 
