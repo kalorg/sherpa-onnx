@@ -46,12 +46,29 @@ object AppLog {
     fun markNpuInitStart(context: Context, modelDir: String) {
         runCatching {
             File(context.filesDir, NPU_INIT_MARKER).writeText("$modelDir|${System.currentTimeMillis()}")
+            writePublicLog(context, "STATUS: NPU initialization in progress for $modelDir...")
         }
     }
 
     fun markNpuInitDone(context: Context) {
         runCatching {
             File(context.filesDir, NPU_INIT_MARKER).delete()
+            writePublicLog(context, "STATUS: Initialization finished.")
+        }
+    }
+
+    fun writePublicLog(context: Context, extraNote: String = "") {
+        runCatching {
+            val diag = getFullDiagnostics(context) + (if (extraNote.isNotEmpty()) "\n=== NOTE ===\n$extraNote\n" else "")
+            // Save to external app files dir (/sdcard/Android/data/com.k2fsa.sherpa.onnx/files/)
+            context.getExternalFilesDir(null)?.let { extDir ->
+                File(extDir, "sherpa_onnx_diagnostics.txt").writeText(diag)
+            }
+            // Also try public Download folder (/sdcard/Download/sherpa_onnx_diagnostics.txt)
+            val dlDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            if (dlDir != null && dlDir.exists()) {
+                File(dlDir, "sherpa_onnx_diagnostics.txt").writeText(diag)
+            }
         }
     }
 

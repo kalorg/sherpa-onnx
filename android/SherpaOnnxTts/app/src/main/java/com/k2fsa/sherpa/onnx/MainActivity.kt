@@ -139,7 +139,19 @@ class MainActivity : AppCompatActivity() {
         text.setText("Bonjour ! Cette voix est celle de votre modèle narrateur personnalisé.")
         TtsManager.setActiveModelDir(TtsManager.NARRATEUR_MODEL_DIR)
 
-        startTtsInit(preferredModel = TtsManager.NARRATEUR_MODEL_DIR)
+        val prevCrash = AppLog.didPreviousNpuInitCrash(applicationContext)
+        if (prevCrash != null) {
+            AppLog.e("CRASH DETECTE LORS DE L'ESSAI NPU PRECEDENT: $prevCrash")
+            tvBackendStatus.text = "Backend: Crash NPU précédent détecté (voir logs ci-dessous)"
+            tvPerfMetrics.text = "Cliquez sur 'Copier logs' ou 'Forcer CPU' pour continuer."
+        } else {
+            AppLog.i("Application prête. Choisissez 'Auto (NPU)', 'Forcer NPU' ou 'Forcer CPU' pour initialiser le moteur.")
+            tvBackendStatus.text = "Backend: En attente (cliquez sur Forcer NPU ou Forcer CPU)"
+            tvPerfMetrics.text = "Status: Prêt à initialiser"
+        }
+        tvDebugLog.text = AppLog.getRecentLogs(120)
+        generate.text = "Initialiser & Générer"
+        generate.isEnabled = true
     }
 
     private fun onSetMode(mode: String) {
@@ -239,7 +251,7 @@ class MainActivity : AppCompatActivity() {
     private fun onClickGenerate() {
         val activeTts = tts
         if (activeTts == null) {
-            Toast.makeText(applicationContext, "TTS non initialisé !", Toast.LENGTH_SHORT).show()
+            startTtsInit()
             return
         }
 

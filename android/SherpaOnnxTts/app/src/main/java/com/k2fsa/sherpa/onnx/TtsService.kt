@@ -30,11 +30,7 @@ class TtsService : TextToSpeechService() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.i(TAG, "TtsService onCreate")
-        Thread {
-            runCatching { TtsManager.ensureInitialized(applicationContext) }
-                .onFailure { Log.e(TAG, "Background TTS init in TtsService failed", it) }
-        }.start()
+        Log.i(TAG, "TtsService onCreate (lazy initialization enabled)")
     }
 
     private fun activeLocale(): Locale = TtsManager.getActiveLocale(applicationContext)

@@ -452,8 +452,9 @@ void LogCallback(const char *fmt, QnnLog_Level_t level, uint64_t timestamp,
   }
 
   double ms = timestamp / 1000000.0;
-  fprintf(stdout, "%8.1fms [%-7s] ", ms, s.c_str());
-  vfprintf(stdout, fmt, args);
+  char msg_buf[2048];
+  vsnprintf(msg_buf, sizeof(msg_buf), fmt, args);
+  SHERPA_ONNX_LOGE("[QNN %.1fms %s] %s", ms, s.c_str(), msg_buf);
 }
 
 void PrintTensor(Qnn_TensorV2_t t) {
