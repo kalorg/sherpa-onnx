@@ -126,7 +126,8 @@ class OfflineTtsVitsModelQnn::Impl {
   }
 
   Ort::Value Run(Ort::Value x, int64_t /*sid*/, float speed,
-                 int64_t /*emotion_id*/) {
+                 int64_t /*emotion_id*/, float noise_scale = -1.0f,
+                 float noise_scale_w = -1.0f) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     std::vector<int64_t> x_shape = x.GetTensorTypeAndShapeInfo().GetShape();
@@ -145,8 +146,8 @@ class OfflineTtsVitsModelQnn::Impl {
     // chunks of max_seq_len_
     for (int32_t offset = 0; offset < num_tokens; offset += max_seq_len_) {
       int32_t chunk_len = std::min(max_seq_len_, num_tokens - offset);
-      std::vector<float> chunk_audio =
-          RunSingleChunk(x_ptr + offset, chunk_len, speed);
+      std::vector<float> chunk_audio = RunSingleChunk(
+          x_ptr + offset, chunk_len, speed, noise_scale, noise_scale_w);
       audio_samples.insert(audio_samples.end(), chunk_audio.begin(),
                            chunk_audio.end());
     }
@@ -356,7 +357,9 @@ class OfflineTtsVitsModelQnn::Impl {
   }
 
   std::vector<float> RunSingleChunk(const int64_t *tokens, int32_t actual_len,
-                                    float speed) const {
+                                    float speed,
+                                    float noise_scale_override = -1.0f,
+                                    float noise_scale_w_override = -1.0f) const {
     // 1. Prepare padded int32 inputs for encoder: x [1, max_seq_len_],
     // x_lengths [1]
     std::vector<int32_t> x_padded(max_seq_len_, 0);
@@ -383,7 +386,9 @@ class OfflineTtsVitsModelQnn::Impl {
     if (speed != 1.0f && speed > 0.0f) {
       length_scale = 1.0f / speed;
     }
-    float noise_scale_w = config_.vits.noise_scale_w;
+    float noise_scale_w = (noise_scale_w_override >= 0.0f)
+                              ? noise_scale_w_override
+                              : config_.vits.noise_scale_w;
 
     sdp_model_->SetInputTensorData("x_encoded", x_encoded.data(),
                                    x_encoded.size());
@@ -438,7 +443,9 @@ class OfflineTtsVitsModelQnn::Impl {
     }
 
     // 4. Run Flow
-    float noise_scale = config_.vits.noise_scale;
+    float noise_scale = (noise_scale_override >= 0.0f)
+                            ? noise_scale_override
+                            : config_.vits.noise_scale;
     flow_model_->SetInputTensorData("m_p", m_p.data(), m_p.size());
     flow_model_->SetInputTensorData("logs_p", logs_p.data(), logs_p.size());
     flow_model_->SetInputTensorData("y_mask", y_mask.data(), y_mask.size());
@@ -559,8 +566,11 @@ OfflineTtsVitsModelQnn::OfflineTtsVitsModelQnn(
 
 Ort::Value OfflineTtsVitsModelQnn::Run(Ort::Value x, int64_t sid /*= 0*/,
                                        float speed /*= 1.0*/,
-                                       int64_t emotion_id /*= 0*/) {
-  return impl_->Run(std::move(x), sid, speed, emotion_id);
+                                       int64_t emotion_id /*= 0*/,
+                                       float noise_scale /*= -1.0f*/,
+                                       float noise_scale_w /*= -1.0f*/) {
+  return impl_->Run(std::move(x), sid, speed, emotion_id, noise_scale,
+                    noise_scale_w);
 }
 
 Ort::Value OfflineTtsVitsModelQnn::Run(Ort::Value x, Ort::Value tones,

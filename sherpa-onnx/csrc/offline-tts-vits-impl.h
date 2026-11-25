@@ -102,6 +102,8 @@ class OfflineTtsVitsTplImpl : public OfflineTtsImpl {
     int64_t sid = ValidateSid(gen_config.sid, meta_data.num_speakers);
     int64_t emotion_id = ValidateEmotionId(
         gen_config.GetExtraInt("emotion_id", 0), meta_data.num_emotions);
+    float noise_scale = gen_config.GetExtraFloat("noise_scale", -1.0f);
+    float noise_scale_w = gen_config.GetExtraFloat("noise_scale_w", -1.0f);
 
     std::string text = _text;
     if (!text.empty()) {
@@ -159,7 +161,8 @@ class OfflineTtsVitsTplImpl : public OfflineTtsImpl {
     }
 
     return GenerateInBatches(x, tones, sid, speed, gen_config.silence_scale,
-                             emotion_id, debug, callback);
+                             emotion_id, noise_scale, noise_scale_w, debug,
+                             callback);
   }
 
   [[deprecated("Use Generate(text, GenerationConfig, callback) instead")]]
@@ -332,12 +335,14 @@ class OfflineTtsVitsTplImpl : public OfflineTtsImpl {
                                    std::vector<std::vector<int64_t>> &tones,
                                    int64_t sid, float speed,
                                    float silence_scale, int64_t emotion_id,
+                                   float noise_scale, float noise_scale_w,
                                    bool debug,
                                    GeneratedAudioCallback callback) const {
     int32_t x_size = static_cast<int32_t>(x.size());
 
     if (config_.max_num_sentences <= 0 || x_size <= config_.max_num_sentences) {
-      auto ans = Process(x, tones, sid, speed, silence_scale, emotion_id);
+      auto ans = Process(x, tones, sid, speed, silence_scale, emotion_id,
+                         noise_scale, noise_scale_w);
       if (callback) {
         callback(ans.samples.data(), ans.samples.size(), 1.0);
       }
@@ -380,8 +385,8 @@ class OfflineTtsVitsTplImpl : public OfflineTtsImpl {
         }
       }
 
-      auto audio =
-          Process(batch_x, batch_tones, sid, speed, silence_scale, emotion_id);
+      auto audio = Process(batch_x, batch_tones, sid, speed, silence_scale,
+                           emotion_id, noise_scale, noise_scale_w);
       ans.sample_rate = audio.sample_rate;
       ans.samples.insert(ans.samples.end(), audio.samples.begin(),
                          audio.samples.end());
@@ -402,8 +407,8 @@ class OfflineTtsVitsTplImpl : public OfflineTtsImpl {
     }
 
     if (!batch_x.empty()) {
-      auto audio =
-          Process(batch_x, batch_tones, sid, speed, silence_scale, emotion_id);
+      auto audio = Process(batch_x, batch_tones, sid, speed, silence_scale,
+                           emotion_id, noise_scale, noise_scale_w);
       ans.sample_rate = audio.sample_rate;
       ans.samples.insert(ans.samples.end(), audio.samples.begin(),
                          audio.samples.end());
@@ -539,7 +544,8 @@ class OfflineTtsVitsTplImpl : public OfflineTtsImpl {
   GeneratedAudio Process(const std::vector<std::vector<int64_t>> &tokens,
                          const std::vector<std::vector<int64_t>> &tones,
                          int32_t sid, float speed, float silence_scale,
-                         int64_t emotion_id = 0) const {
+                         int64_t emotion_id = 0, float noise_scale = -1.0f,
+                         float noise_scale_w = -1.0f) const {
     int32_t num_tokens = 0;
     for (const auto &k : tokens) {
       num_tokens += k.size();
@@ -575,7 +581,8 @@ class OfflineTtsVitsTplImpl : public OfflineTtsImpl {
 
     Ort::Value audio{nullptr};
     if (tones.empty()) {
-      audio = model_->Run(std::move(x_tensor), sid, speed, emotion_id);
+      audio = model_->Run(std::move(x_tensor), sid, speed, emotion_id,
+                          noise_scale, noise_scale_w);
     } else {
       audio =
           model_->Run(std::move(x_tensor), std::move(tones_tensor), sid, speed);

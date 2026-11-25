@@ -37,7 +37,8 @@ class OfflineTtsVitsModel {
    *         it to a 1-D tensor.
    */
   Ort::Value Run(Ort::Value x, int64_t sid = 0, float speed = 1.0,
-                 int64_t emotion_id = 0);
+                 int64_t emotion_id = 0, float noise_scale = -1.0f,
+                 float noise_scale_w = -1.0f);
 
   // This is for MeloTTS
   Ort::Value Run(Ort::Value x, Ort::Value tones, int64_t sid = 0,
