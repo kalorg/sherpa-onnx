@@ -18,6 +18,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SherpaOnnxTtsEngine"
         tools:targetApi="36">
+
+        <!-- Required by Qualcomm QNN HTP V79 to load /vendor/lib64/libcdsprpc.so -->
+        <uses-native-library
+            android:name="libcdsprpc.so"
+            android:required="false" />
+
         <activity
             android:name=".GetSampleText"
             android:exported="true"

@@ -229,6 +229,16 @@ class QnnBackend::Impl {
   }
 
   void InitDevice() {
+    // Attempt 0: Standard default deviceCreate (succeeds when <uses-native-library android:name="libcdsprpc.so" /> is declared)
+    auto ret = qnn_interface_.deviceCreate(log_handle_, nullptr, &device_handle_);
+    if (ret == QNN_SUCCESS && device_handle_ != nullptr) {
+      if (opts_.debug) {
+        SHERPA_ONNX_LOGE("deviceCreate succeeded with default config");
+      }
+      return;
+    }
+    SHERPA_ONNX_LOGE("deviceCreate with default config failed: %d", static_cast<int>(ret));
+
     // Attempt 1: HTP config with unsigned process domain and Hexagon V79 arch
     QnnHtpDevice_CustomConfig_t custom_signed_pd{};
     custom_signed_pd.option = QNN_HTP_DEVICE_CONFIG_OPTION_SIGNEDPD;
@@ -254,7 +264,7 @@ class QnnBackend::Impl {
         nullptr
     };
 
-    auto ret = qnn_interface_.deviceCreate(log_handle_, configs_v79, &device_handle_);
+    ret = qnn_interface_.deviceCreate(log_handle_, configs_v79, &device_handle_);
     if (ret == QNN_SUCCESS && device_handle_ != nullptr) {
       SHERPA_ONNX_LOGE("deviceCreate succeeded with V79 + unsigned PD config");
       return;
