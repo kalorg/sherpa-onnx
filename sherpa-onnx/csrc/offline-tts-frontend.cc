@@ -72,9 +72,9 @@ std::unordered_map<char32_t, int32_t> ReadPiperTokens(std::istream &is) {
           s[3] == 'N' && s[4] == 'K' && s[5] == '>') {
         continue;
       }
-      SHERPA_ONNX_LOGE("Error when reading tokens at Line %s. size: %d",
+      SHERPA_ONNX_LOGE("Skipping multi-codepoint token at Line '%s' (size: %d)",
                        line.c_str(), static_cast<int32_t>(s.size()));
-      SHERPA_ONNX_EXIT(-1);
+      continue;
     }
 
     char32_t c = s[0];

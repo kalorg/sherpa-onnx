@@ -139,20 +139,7 @@ class MainActivity : AppCompatActivity() {
         text.setText("Bonjour ! Cette voix est celle de votre modèle narrateur personnalisé.")
         TtsManager.setActiveModelDir(TtsManager.NARRATEUR_MODEL_DIR)
 
-        val prevCrash = AppLog.didPreviousNpuInitCrash(applicationContext)
-        if (prevCrash != null) {
-            AppLog.e("CRASH DETECTE LORS DE L'ESSAI NPU PRECEDENT ($prevCrash). Capture du logcat système en cours...")
-            tvBackendStatus.text = "Backend: Crash NPU précédent détecté (voir logs)"
-            tvPerfMetrics.text = "Rapport sauvegardé dans Téléchargements/sherpa_onnx_diagnostics.txt"
-        } else {
-            AppLog.i("Application prête. Choisissez 'Forcer NPU' ou 'Forcer CPU' pour initialiser le moteur.")
-            tvBackendStatus.text = "Backend: En attente (cliquez sur Forcer NPU ou Forcer CPU)"
-            tvPerfMetrics.text = "Status: Prêt à initialiser"
-        }
-        AppLog.writePublicLog(applicationContext, "Startup dump after previous session")
-        tvDebugLog.text = AppLog.getRecentLogs(120)
-        generate.text = "Initialiser & Générer"
-        generate.isEnabled = true
+        startTtsInit(preferredModel = TtsManager.NARRATEUR_MODEL_DIR)
     }
 
     private fun onSetMode(mode: String) {

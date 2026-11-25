@@ -32,12 +32,14 @@ def generate_tokens_txt(config_json_path: Path, output_tokens_path: Path) -> Non
         cfg = json.load(f)
 
     id_map = cfg.get("phoneme_id_map", {})
+    count = 0
     with open(output_tokens_path, "w", encoding="utf-8") as out:
         for sym, ids in id_map.items():
-            if sym in ("\n", "\r"):
+            if sym in ("\n", "\r") or len(sym) != 1:
                 continue
             out.write(f"{sym} {ids[0]}\n")
-    print(f"[+] Wrote {len(id_map)} tokens to {output_tokens_path}")
+            count += 1
+    print(f"[+] Wrote {count} single-codepoint tokens to {output_tokens_path}")
 
 
 def main() -> None:
