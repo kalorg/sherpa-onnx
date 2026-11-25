@@ -1,7 +1,6 @@
 package com.k2fsa.sherpa.onnx
 
 import android.content.Context
-import android.util.Log
 import com.github.csukuangfj.piper.phonemize.piperPhonemizeInitialize
 import com.github.csukuangfj.piper.phonemize.piperPhonemizeText
 import java.io.File
@@ -13,10 +12,11 @@ import java.util.Locale
  * - Automatic CPU fallback: Standard Piper ONNX model (.onnx) if present and NPU initialization fails
  * - Auto-detects a French voice directory ("pipertts-fr-qnn-s25-ultra") in assets or internal storage
  *   before falling back to the bundled English default ("pipertts-en-qnn-s25-ultra").
+ * - Full diagnostics logging into AppLog.
  */
 object TtsManager {
-    private const val FR_MODEL_DIR = "pipertts-fr-qnn-s25-ultra"
-    private const val EN_MODEL_DIR = "pipertts-en-qnn-s25-ultra"
+    const val FR_MODEL_DIR = "pipertts-fr-qnn-s25-ultra"
+    const val EN_MODEL_DIR = "pipertts-en-qnn-s25-ultra"
     private const val QNN_BINS = "encoder.bin,sdp.bin,flow.bin,decoder.bin"
 
     private val lock = Any()
@@ -25,10 +25,13 @@ object TtsManager {
     private var ttsInstance: OfflineTts? = null
 
     @Volatile
-    private var activeBackend: String = "NPU (QNN HTP V79)"
+    private var activeBackend: String = "Not Initialized"
 
     @Volatile
-    private var activeModelDir: String = EN_MODEL_DIR
+    private var activeModelDir: String = FR_MODEL_DIR
+
+    @Volatile
+    private var forcedBackendMode: String = "auto" // "auto", "npu", "cpu"
 
     @Volatile
     private var phonemizerReady: Boolean = false
@@ -36,6 +39,12 @@ object TtsManager {
     fun getTts(): OfflineTts? = ttsInstance
 
     fun getActiveBackend(): String = activeBackend
+
+    fun getForcedBackendMode(): String = forcedBackendMode
+
+    fun setForcedBackendMode(mode: String) {
+        forcedBackendMode = mode
+    }
 
     fun getActiveModelDir(context: Context): String {
         if (hasVoiceInAssetsOrFiles(context, FR_MODEL_DIR)) {
@@ -59,25 +68,45 @@ object TtsManager {
         return "piper-${locale.language}-$name"
     }
 
-    fun ensureInitialized(context: Context, preferredModelDir: String? = null): OfflineTts {
+    fun reset() {
+        synchronized(lock) {
+            ttsInstance = null
+            activeBackend = "Not Initialized"
+        }
+    }
+
+    fun ensureInitialized(
+        context: Context,
+        preferredModelDir: String? = null,
+        forceMode: String? = null
+    ): OfflineTts {
         val appContext = context.applicationContext
-        val targetDir = preferredModelDir ?: getActiveModelDir(appContext)
+        val targetDir = preferredModelDir ?: if (activeModelDir.isNotEmpty()) activeModelDir else getActiveModelDir(appContext)
+        val mode = forceMode ?: forcedBackendMode
 
         ttsInstance?.let {
-            if (activeModelDir == targetDir) return it
+            if (activeModelDir == targetDir && forcedBackendMode == mode) return it
         }
 
         synchronized(lock) {
             ttsInstance?.let {
-                if (activeModelDir == targetDir) return it
+                if (activeModelDir == targetDir && forcedBackendMode == mode) return it
             }
 
+            val startTime = System.currentTimeMillis()
             val modelDir = targetDir
             activeModelDir = modelDir
+            forcedBackendMode = mode
+
+            AppLog.i("--- TTS INITIALIZATION START ---")
+            AppLog.i("Target voice: $modelDir | Mode: $mode")
 
             if (!phonemizerReady) {
+                AppLog.i("Initializing Piper phonemizer native libraries...")
+                val pStart = System.currentTimeMillis()
                 piperPhonemizeInitialize(appContext)
                 phonemizerReady = true
+                AppLog.i("Phonemizer initialized in ${System.currentTimeMillis() - pStart} ms")
             }
 
             val cfgAsset = "$modelDir/config.json"
@@ -85,13 +114,16 @@ object TtsManager {
                 copyAssetToInternalStorage(appContext, cfgAsset)
             }
             val tokensPath = copyAssetToInternalStorage(appContext, "$modelDir/tokens.txt")
+            AppLog.i("Tokens path: $tokensPath (exists: ${File(tokensPath).exists()}, size: ${File(tokensPath).length()} bytes)")
 
-            // 1. Try Qualcomm Hexagon V79 NPU (QNN) first
+            // 1. Try Qualcomm Hexagon V79 NPU (QNN) if allowed
             var qnnError: Throwable? = null
-            if (hasQnnBinaries(appContext, modelDir)) {
+            if (mode != "cpu" && hasQnnBinaries(appContext, modelDir)) {
                 try {
-                    Log.i(TAG, "Initializing Qualcomm QNN HTP V79 NPU from $modelDir (nativeLibraryDir=${appContext.applicationInfo.nativeLibraryDir})")
-                    OfflineTts.prependAdspLibraryPath(appContext.applicationInfo.nativeLibraryDir)
+                    AppLog.i("Attempting Qualcomm QNN HTP V79 NPU from $modelDir")
+                    val nativeLibDir = appContext.applicationInfo.nativeLibraryDir
+                    AppLog.i("Native library dir: $nativeLibDir")
+                    OfflineTts.prependAdspLibraryPath(nativeLibDir)
 
                     val qnnConfig = getOfflineTtsConfig(
                         modelDir = modelDir,
@@ -103,49 +135,77 @@ object TtsManager {
                     qnnConfig.model.vits.qnnConfig.contextBinary =
                         copyAssetListToInternalStorage(appContext, qnnConfig.model.vits.qnnConfig.contextBinary)
 
+                    AppLog.i("Context binaries staged: ${qnnConfig.model.vits.qnnConfig.contextBinary}")
+                    AppLog.i("Instantiating native OfflineTts (QNN HTP V79)...")
+                    val qnnInitStart = System.currentTimeMillis()
                     val created = OfflineTts(assetManager = null, config = qnnConfig)
+                    val qnnElapsed = System.currentTimeMillis() - qnnInitStart
+
                     activeBackend = "Qualcomm Hexagon NPU (QNN HTP V79)"
                     ttsInstance = created
+                    AppLog.i("SUCCESS: Qualcomm NPU TTS ready in $qnnElapsed ms (sampleRate=${created.sampleRate()}, lang=${created.lang()})")
                     return created
                 } catch (e: Throwable) {
-                    Log.e(TAG, "QNN NPU initialization failed, checking for CPU ONNX fallback", e)
+                    AppLog.w("Qualcomm NPU init failed: ${e.message}", e)
                     qnnError = e
+                    if (mode == "npu") {
+                        AppLog.e("Forced NPU mode requested: aborting fallback")
+                        throw e
+                    }
                 }
+            } else if (mode == "cpu") {
+                AppLog.i("Mode is forced CPU: skipping NPU check")
+            } else {
+                AppLog.i("No QNN context binaries in $modelDir, skipping NPU")
             }
 
-            // 2. Automatic CPU fallback if a standard Piper .onnx model exists in modelDir
+            // 2. Automatic CPU fallback if a standard Piper .onnx model exists
             val onnxFallback = findOnnxFallback(appContext, modelDir)
             if (onnxFallback != null) {
-                Log.w(TAG, "Falling back to CPU ONNX model: $onnxFallback")
+                AppLog.i("Starting CPU ONNX Runtime fallback: $onnxFallback")
                 val cpuConfig = getOfflineTtsConfig(
                     modelDir = modelDir,
                     modelName = onnxFallback,
                     provider = "cpu",
                 )
                 cpuConfig.model.vits.tokens = tokensPath
-                cpuConfig.model.vits.model = copyAssetToInternalStorage(appContext, cpuConfig.model.vits.model)
+                val modelFile = copyAssetToInternalStorage(appContext, cpuConfig.model.vits.model)
+                cpuConfig.model.vits.model = modelFile
+                AppLog.i("ONNX model staged at: $modelFile (size: ${File(modelFile).length() / (1024 * 1024)} MB)")
+
+                val cpuInitStart = System.currentTimeMillis()
                 val created = OfflineTts(assetManager = null, config = cpuConfig)
+                val cpuElapsed = System.currentTimeMillis() - cpuInitStart
+
                 activeBackend = "CPU Fallback (ONNX Runtime)"
                 ttsInstance = created
+                AppLog.i("SUCCESS: CPU ONNX TTS ready in $cpuElapsed ms (sampleRate=${created.sampleRate()}, lang=${created.lang()})")
                 return created
             }
 
-            throw qnnError ?: IllegalStateException(
+            val finalError = qnnError ?: IllegalStateException(
                 "No QNN context binaries ($QNN_BINS) or CPU fallback (.onnx) found in $modelDir"
             )
+            AppLog.e("FAILED: No viable backend could be initialized: ${finalError.message}", finalError)
+            throw finalError
         }
     }
 
     fun phonemize(tts: OfflineTts, text: String): Array<IntArray> {
+        val start = System.currentTimeMillis()
         var voice = tts.lang()
         if (voice.isEmpty()) {
             voice = if (activeModelDir.contains("-fr-")) "fr" else "en-us"
         }
-        Log.i(TAG, "Phonemizer voice: $voice")
+        AppLog.i("Phonemizing text (${text.length} chars) using voice '$voice'...")
         val result = piperPhonemizeText(text, voice)
             ?: throw RuntimeException("Failed to phonemize text for voice '$voice'")
         try {
-            return Array(result.numSentences) { i -> result.getPhonemes(i) }
+            val phonemes = Array(result.numSentences) { i -> result.getPhonemes(i) }
+            val totalTokens = phonemes.sumOf { it.size }
+            val elapsed = System.currentTimeMillis() - start
+            AppLog.i("Phonemization complete in $elapsed ms: ${phonemes.size} sentence(s), $totalTokens token(s)")
+            return phonemes
         } finally {
             result.close()
         }
@@ -198,7 +258,7 @@ object TtsManager {
                 input.copyTo(output)
             }
         }
-        Log.i(TAG, "Copied $path -> ${outFile.absolutePath}")
+        AppLog.i("Extracted asset: $path (${outFile.length() / 1024} KB)")
         return outFile.absolutePath
     }
 

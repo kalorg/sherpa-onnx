@@ -22,6 +22,8 @@ import kotlin.math.min
  * - Supports instant interruption in onStop() while synthesizing on the Qualcomm NPU.
  * - Lazy/thread-safe engine initialization via TtsManager so onCreate() never triggers an ANR.
  */
+private const val TAG = "TtsService"
+
 class TtsService : TextToSpeechService() {
     @Volatile
     private var stopRequested: Boolean = false
