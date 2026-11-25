@@ -182,6 +182,9 @@ class QnnModel::Impl {
       SHERPA_ONNX_LOGE("Only the first graph is used");
     }
 
+    SHERPA_ONNX_LOGE("Calling contextCreateFromBinary for '%s' (graph='%s', size=%zu bytes)...",
+                     binary_context_file.c_str(), (*graphs_info)[0].graph_name, buffer.size());
+
     Qnn_ContextHandle_t context_handle = nullptr;
 
     ret = backend_->QnnInterface().contextCreateFromBinary(
@@ -206,6 +209,8 @@ class QnnModel::Impl {
       return false;
     }
 
+    SHERPA_ONNX_LOGE("contextCreateFromBinary succeeded! Calling graphRetrieve for '%s'...",
+                     (*graphs_info)[0].graph_name);
     backend_->InitContext(context_handle);
 
     if (backend_->QnnInterface().graphRetrieve(
@@ -217,11 +222,13 @@ class QnnModel::Impl {
     }
 
     graph_handle_ = (*graphs_info)[0].graph;
+    SHERPA_ONNX_LOGE("graphRetrieve succeeded! Initializing input/output tensors...");
 
     InitInputTensors((*graphs_info)[0]);
     InitOutputTensors((*graphs_info)[0]);
 
     free_graphs_info();
+    SHERPA_ONNX_LOGE("LoadSystemLib completed for '%s'", binary_context_file.c_str());
 
     return true;
   }
@@ -602,12 +609,18 @@ class QnnModel::Impl {
 
       CopyTensorInfo(graph.input_tensors[i], *p);
 
+      std::string name = p->v1.name ? p->v1.name : "";
       if (debug_) {
-        SHERPA_ONNX_LOGE("input %d", (int)i);
-        PrintTensor(p->v2);
+        SHERPA_ONNX_LOGE("input %d: name='%s', version=%d, rank=%d, dataSize=%d",
+                         static_cast<int>(i), name.c_str(),
+                         static_cast<int>(p->version),
+                         static_cast<int>(p->v1.rank),
+                         static_cast<int>(p->v1.clientBuf.dataSize));
+        if (p->version == QNN_TENSOR_VERSION_2) {
+          PrintTensor(p->v2);
+        }
       }
 
-      std::string name = p->v1.name;
       name2tensor_[name] = p.get();
       input_tensor_names_.push_back(std::move(name));
 
@@ -623,13 +636,18 @@ class QnnModel::Impl {
 
       CopyTensorInfo(graph.output_tensors[i], *p);
 
+      std::string name = p->v1.name ? p->v1.name : "";
       if (debug_ && (i + 3 > graph.num_output_tensors)) {
-        SHERPA_ONNX_LOGE("output %d", (int)i);
-
-        PrintTensor(p->v2);
+        SHERPA_ONNX_LOGE("output %d: name='%s', version=%d, rank=%d, dataSize=%d",
+                         static_cast<int>(i), name.c_str(),
+                         static_cast<int>(p->version),
+                         static_cast<int>(p->v1.rank),
+                         static_cast<int>(p->v1.clientBuf.dataSize));
+        if (p->version == QNN_TENSOR_VERSION_2) {
+          PrintTensor(p->v2);
+        }
       }
 
-      std::string name = p->v1.name;
       name2tensor_[name] = p.get();
       output_tensor_names_.push_back(std::move(name));
 

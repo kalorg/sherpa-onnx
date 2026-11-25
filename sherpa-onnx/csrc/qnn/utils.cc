@@ -460,7 +460,7 @@ void LogCallback(const char *fmt, QnnLog_Level_t level, uint64_t timestamp,
 void PrintTensor(Qnn_TensorV2_t t) {
   std::ostringstream os;
   os << "  id: " << t.id << "\n";
-  os << "  name: " << t.name << "\n";
+  os << "  name: " << (t.name ? t.name : "(null)") << "\n";
   os << "  type: " << TensorTypeToString(t.type) << "\n";
   os << "  data format: " << t.dataFormat << "\n";
   os << "  data type: " << TensorDataTypeToString(t.dataType) << "\n";
@@ -477,11 +477,15 @@ void PrintTensor(Qnn_TensorV2_t t) {
   }
   os << "  rank: " << t.rank << "\n";
   os << "  dimensions: ";
-  for (int32_t i = 0; i < t.rank; ++i) {
-    os << t.dimensions[i] << ", ";
-    if (i + 1 == t.rank) {
-      os << "\n";
+  if (t.dimensions != nullptr) {
+    for (int32_t i = 0; i < static_cast<int32_t>(t.rank); ++i) {
+      os << t.dimensions[i] << ", ";
+      if (i + 1 == static_cast<int32_t>(t.rank)) {
+        os << "\n";
+      }
     }
+  } else {
+    os << "(null)\n";
   }
   os << "  memType: " << TensorMemTypeToString(t.memType) << "\n";
   if (t.memType == QNN_TENSORMEMTYPE_RAW) {
