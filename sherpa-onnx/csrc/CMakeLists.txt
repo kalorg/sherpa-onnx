@@ -278,6 +278,11 @@ if(SHERPA_ONNX_ENABLE_QNN)
     ./qnn/qnn-model.cc
     ./qnn/utils.cc
   )
+  if(SHERPA_ONNX_ENABLE_TTS)
+    list(APPEND sources
+      ./qnn/offline-tts-vits-model-qnn.cc
+    )
+  endif()
 endif()
 
 list(APPEND sources

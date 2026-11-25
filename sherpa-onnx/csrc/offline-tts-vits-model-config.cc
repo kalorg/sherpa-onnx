@@ -9,6 +9,7 @@
 
 #include "sherpa-onnx/csrc/file-utils.h"
 #include "sherpa-onnx/csrc/macros.h"
+#include "sherpa-onnx/csrc/text-utils.h"
 
 namespace sherpa_onnx {
 
@@ -27,17 +28,34 @@ void OfflineTtsVitsModelConfig::Register(ParseOptions *po) {
                "noise_scale_w for VITS models");
   po->Register("vits-length-scale", &length_scale,
                "Speech speed. Larger->Slower; Smaller->faster.");
+
+  std::string prefix = "vits";
+  ParseOptions p(prefix, po);
+  qnn_config.Register(&p);
 }
 
 bool OfflineTtsVitsModelConfig::Validate() const {
-  if (model.empty()) {
-    SHERPA_ONNX_LOGE("Please provide --vits-model");
+  if (model.empty() && qnn_config.context_binary.empty()) {
+    SHERPA_ONNX_LOGE(
+        "Please provide --vits-model or --vits.qnn-context-binary");
     return false;
   }
 
-  if (!FileExists(model)) {
-    SHERPA_ONNX_LOGE("--vits-model: '%s' does not exist", model.c_str());
-    return false;
+  if (!model.empty()) {
+    std::vector<std::string> files;
+    SplitStringToVector(model, ",", false, &files);
+    for (const auto &f : files) {
+      if (!FileExists(f)) {
+        SHERPA_ONNX_LOGE("--vits-model: '%s' does not exist", f.c_str());
+        return false;
+      }
+    }
+  }
+
+  if (!qnn_config.context_binary.empty() || !qnn_config.backend_lib.empty()) {
+    if (!qnn_config.Validate()) {
+      return false;
+    }
   }
 
   if (tokens.empty()) {
@@ -50,9 +68,15 @@ bool OfflineTtsVitsModelConfig::Validate() const {
     return false;
   }
 
-  if (!lexicon.empty() && !FileExists(lexicon)) {
-    SHERPA_ONNX_LOGE("--vits-lexicon: '%s' does not exist", lexicon.c_str());
-    return false;
+  if (!lexicon.empty()) {
+    std::vector<std::string> files;
+    SplitStringToVector(lexicon, ",", false, &files);
+    for (const auto &f : files) {
+      if (!FileExists(f)) {
+        SHERPA_ONNX_LOGE("--vits-lexicon: '%s' does not exist", f.c_str());
+        return false;
+      }
+    }
   }
 
   if (!data_dir.empty()) {
@@ -81,7 +105,11 @@ std::string OfflineTtsVitsModelConfig::ToString() const {
   os << "tokens=\"" << tokens << "\", ";
   os << "noise_scale=" << noise_scale << ", ";
   os << "noise_scale_w=" << noise_scale_w << ", ";
-  os << "length_scale=" << length_scale << ")";
+  os << "length_scale=" << length_scale;
+  if (!qnn_config.backend_lib.empty() || !qnn_config.context_binary.empty()) {
+    os << ", qnn_config=" << qnn_config.ToString();
+  }
+  os << ")";
 
   return os.str();
 }

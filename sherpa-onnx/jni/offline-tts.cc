@@ -215,6 +215,31 @@ static OfflineTtsConfig GetOfflineTtsConfig(JNIEnv *env, jobject config,
   SHERPA_ONNX_JNI_READ_FLOAT(ans.model.vits.length_scale, lengthScale, vits_cls,
                              vits);
 
+  fid = env->GetFieldID(vits_cls, "qnnConfig",
+                        "Lcom/k2fsa/sherpa/onnx/QnnConfig;");
+  if (fid != nullptr && !env->ExceptionCheck()) {
+    jobject vits_qnn_config = env->GetObjectField(vits, fid);
+    if (vits_qnn_config != nullptr) {
+      jclass vits_qnn_config_cls = env->GetObjectClass(vits_qnn_config);
+      SHERPA_ONNX_JNI_READ_STRING(ans.model.vits.qnn_config.backend_lib,
+                                  backendLib, vits_qnn_config_cls,
+                                  vits_qnn_config);
+      SHERPA_ONNX_JNI_READ_STRING(ans.model.vits.qnn_config.context_binary,
+                                  contextBinary, vits_qnn_config_cls,
+                                  vits_qnn_config);
+      SHERPA_ONNX_JNI_READ_STRING(ans.model.vits.qnn_config.system_lib,
+                                  systemLib, vits_qnn_config_cls,
+                                  vits_qnn_config);
+      SHERPA_ONNX_JNI_READ_BOOL(ans.model.vits.qnn_config.htp_perf_mode,
+                                htpPerfMode, vits_qnn_config_cls,
+                                vits_qnn_config);
+      env->DeleteLocalRef(vits_qnn_config_cls);
+      env->DeleteLocalRef(vits_qnn_config);
+    }
+  } else if (env->ExceptionCheck()) {
+    env->ExceptionClear();
+  }
+
   // matcha
   fid = env->GetFieldID(model_config_cls, "matcha",
                         "Lcom/k2fsa/sherpa/onnx/OfflineTtsMatchaModelConfig;");
@@ -684,4 +709,13 @@ JNIEXPORT jboolean JNICALL Java_com_k2fsa_sherpa_onnx_GeneratedAudio_saveImpl(
   env->ReleaseFloatArrayElements(samples, p, JNI_ABORT);
 
   return ok;
+}
+
+SHERPA_ONNX_EXTERN_C
+JNIEXPORT void JNICALL
+Java_com_k2fsa_sherpa_onnx_OfflineTts_prependAdspLibraryPath(
+    JNIEnv *env, jclass /*cls*/, jstring new_path) {
+  const char *p = env->GetStringUTFChars(new_path, nullptr);
+  sherpa_onnx::PrependAdspLibraryPath(p);
+  env->ReleaseStringUTFChars(new_path, p);
 }

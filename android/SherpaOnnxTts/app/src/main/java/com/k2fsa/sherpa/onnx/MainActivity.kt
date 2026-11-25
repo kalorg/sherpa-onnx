@@ -80,7 +80,7 @@ class MainActivity : AppCompatActivity() {
         speed.setText("1.0")
 
         // we will change sampleText here in the CI
-        val sampleText = ""
+        val sampleText = "Hello! This voice is synthesized on your Samsung Galaxy S25 Ultra Qualcomm Hexagon NPU using Sherpa ONNX and QNN."
         text.setText(sampleText)
 
         play.isEnabled = false
@@ -277,6 +277,10 @@ class MainActivity : AppCompatActivity() {
         var unicodeIndexer: String? = null
         var voiceStyle: String? = null
         var supertonicLang: String = "en"
+        var qnnBackendLib: String? = null
+        var qnnSystemLib: String? = null
+        var qnnContextBinary: String? = null
+        var qnnHtpPerfMode: Boolean = false
 
         // The purpose of such a design is to make the CI test easier
         // Please see
@@ -412,6 +416,13 @@ class MainActivity : AppCompatActivity() {
         // voiceStyle = "voice.bin"
         // supertonicLang = "en"  // ISO 639-1: en, zh, ja, ko, fr, de, es, etc.
 
+        // Example 14: Piper TTS on Qualcomm NPU (QNN HTP V79 - Samsung Galaxy S25 Ultra / SM8750)
+        modelDir = "pipertts-en-qnn-s25-ultra"
+        qnnBackendLib = "libQnnHtp.so"
+        qnnSystemLib = "libQnnSystem.so"
+        qnnContextBinary = "encoder.bin,sdp.bin,flow.bin,decoder.bin"
+        usePhonemize = true
+
         this.isSupertonic = isSupertonic
         this.supertonicLang = supertonicLang
         this.usePhonemize = usePhonemize
@@ -442,9 +453,82 @@ class MainActivity : AppCompatActivity() {
             ttsJson = ttsJson ?: "",
             unicodeIndexer = unicodeIndexer ?: "",
             voiceStyle = voiceStyle ?: "",
-        )!!
+            qnnBackendLib = qnnBackendLib ?: "",
+            qnnSystemLib = qnnSystemLib ?: "",
+            qnnContextBinary = qnnContextBinary ?: "",
+            qnnHtpPerfMode = qnnHtpPerfMode,
+        )
+
+        if (config.model.provider == "qnn") {
+            Log.i(TAG, "nativelibdir: ${applicationInfo.nativeLibraryDir}")
+            OfflineTts.prependAdspLibraryPath(applicationInfo.nativeLibraryDir)
+
+            if (config.model.vits.tokens.isNotEmpty()) {
+                config.model.vits.tokens = copyAssetToInternalStorage(config.model.vits.tokens)
+            }
+            if (config.model.vits.lexicon.isNotEmpty()) {
+                config.model.vits.lexicon = copyAssetListToInternalStorage(config.model.vits.lexicon)
+            }
+            if (config.model.vits.model.isNotEmpty()) {
+                config.model.vits.model = copyAssetListToInternalStorage(config.model.vits.model)
+            }
+            if (config.model.vits.qnnConfig.contextBinary.isNotEmpty()) {
+                config.model.vits.qnnConfig.contextBinary =
+                    copyAssetListToInternalStorage(config.model.vits.qnnConfig.contextBinary)
+            }
+            if (config.ruleFsts.isNotEmpty()) {
+                config.ruleFsts = copyAssetListToInternalStorage(config.ruleFsts)
+            }
+            if (config.ruleFars.isNotEmpty()) {
+                config.ruleFars = copyAssetListToInternalStorage(config.ruleFars)
+            }
+            assets = null
+        }
 
         tts = OfflineTts(assetManager = assets, config = config)
+    }
+
+    private fun assetExists(path: String): Boolean {
+        val dir = path.substringBeforeLast('/', "")
+        val fileName = path.substringAfterLast('/')
+        val files = application.assets.list(dir) ?: return false
+        return files.contains(fileName)
+    }
+
+    private fun copyAssetToInternalStorage(path: String): String {
+        val targetRoot = application.filesDir
+        val outFile = File(targetRoot, path)
+
+        if (!assetExists(path)) {
+            outFile.parentFile?.mkdirs()
+            Log.i(TAG, "$path does not exist in assets, return ${outFile.absolutePath}")
+            return outFile.absolutePath
+        }
+
+        if (outFile.exists()) {
+            val assetSize = application.assets.open(path).use { it.available() }
+            if (outFile.length() == assetSize.toLong()) {
+                Log.i(TAG, "${outFile.absolutePath} already exists, skip copying")
+                return outFile.absolutePath
+            }
+        }
+
+        outFile.parentFile?.mkdirs()
+        application.assets.open(path).use { input ->
+            outFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+        Log.i(TAG, "Copied $path to ${outFile.absolutePath}")
+        return outFile.absolutePath
+    }
+
+    private fun copyAssetListToInternalStorage(paths: String): String {
+        if (paths.isBlank()) return paths
+        return paths.split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .joinToString(",") { copyAssetToInternalStorage(it) }
     }
 
     private fun phonemize(text: String): Array<IntArray> {

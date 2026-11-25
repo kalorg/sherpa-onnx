@@ -12,6 +12,7 @@ data class OfflineTtsVitsModelConfig(
     var noiseScale: Float = 0.667f,
     var noiseScaleW: Float = 0.8f,
     var lengthScale: Float = 1.0f,
+    var qnnConfig: QnnConfig = QnnConfig(),
 )
 
 data class OfflineTtsMatchaModelConfig(
@@ -279,6 +280,9 @@ class OfflineTts(
     ): GeneratedAudio
 
     companion object {
+        @JvmStatic
+        external fun prependAdspLibraryPath(newPath: String)
+
         init {
             System.loadLibrary("sherpa-onnx-jni")
         }
@@ -326,6 +330,11 @@ fun getOfflineTtsConfig(
     vocabJson: String = "", // for Pocket
     tokenScoresJson: String = "", // for Pocket
     voiceEmbeddingCacheCapacity: Int = 50, // for Pocket
+    provider: String = "cpu",
+    qnnBackendLib: String = "",
+    qnnSystemLib: String = "",
+    qnnContextBinary: String = "",
+    qnnHtpPerfMode: Boolean = false,
 ): OfflineTtsConfig {
     // For Matcha TTS, please set
     // acousticModelName, vocoder
@@ -337,7 +346,7 @@ fun getOfflineTtsConfig(
     // modelName, voices, isKitten
 
     // For VITS, please set
-    // modelName
+    // modelName (or qnnContextBinary when using QNN)
 
     // For Supertonic TTS, please set
     // isSupertonic, durationPredictor, textEncoder, vectorEstimator,
@@ -353,7 +362,7 @@ fun getOfflineTtsConfig(
     }
 
     if (!isSupertonic && !isZipvoice && !isPocket && modelName.isEmpty() &&
-        acousticModelName.isEmpty()
+        qnnContextBinary.isEmpty() && acousticModelName.isEmpty()
     ) {
         throw IllegalArgumentException("Please specify a TTS model")
     }
@@ -387,12 +396,36 @@ fun getOfflineTtsConfig(
         }
     }
 
-    val vits = if (modelName.isNotEmpty() && voices.isEmpty() && !isSupertonic) {
+    val resolvedModelPath = if (modelName.isEmpty()) {
+        ""
+    } else {
+        modelName.split(",").joinToString(",") { entry ->
+            val trimmed = entry.trim()
+            if ('/' in trimmed) trimmed else "$modelDir/$trimmed"
+        }
+    }
+
+    val resolvedQnnContextBinary = if (qnnContextBinary.isEmpty()) {
+        ""
+    } else {
+        qnnContextBinary.split(",").joinToString(",") { entry ->
+            val trimmed = entry.trim()
+            if ('/' in trimmed) trimmed else "$modelDir/$trimmed"
+        }
+    }
+
+    val vits = if ((modelName.isNotEmpty() || qnnContextBinary.isNotEmpty()) && voices.isEmpty() && !isSupertonic) {
         OfflineTtsVitsModelConfig(
-            model = "$modelDir/$modelName",
+            model = resolvedModelPath,
             lexicon = lexiconPath,
             tokens = "$modelDir/tokens.txt",
             dataDir = dataDir,
+            qnnConfig = QnnConfig(
+                backendLib = qnnBackendLib,
+                systemLib = qnnSystemLib,
+                contextBinary = resolvedQnnContextBinary,
+                htpPerfMode = qnnHtpPerfMode,
+            ),
         )
     } else {
         OfflineTtsVitsModelConfig()
@@ -481,6 +514,12 @@ fun getOfflineTtsConfig(
         OfflineTtsPocketModelConfig()
     }
 
+    val actualProvider = if (qnnContextBinary.isNotEmpty() || qnnBackendLib.isNotEmpty()) {
+        "qnn"
+    } else {
+        provider
+    }
+
     return OfflineTtsConfig(
         model = OfflineTtsModelConfig(
             vits = vits,
@@ -491,8 +530,8 @@ fun getOfflineTtsConfig(
             pocket = pocket,
             supertonic = supertonic,
             numThreads = numberOfThreads,
-            debug = false,
-            provider = "cpu",
+            debug = actualProvider == "qnn",
+            provider = actualProvider,
         ),
         ruleFsts = ruleFsts,
         ruleFars = ruleFars,

@@ -8,6 +8,7 @@
 #include <string>
 
 #include "sherpa-onnx/csrc/parse-options.h"
+#include "sherpa-onnx/csrc/qnn-config.h"
 
 namespace sherpa_onnx {
 
@@ -27,6 +28,8 @@ struct OfflineTtsVitsModelConfig {
   float noise_scale = 0.667;
   float noise_scale_w = 0.8;
   float length_scale = 1;
+
+  QnnConfig qnn_config;
 
   // used only for multi-speaker models, e.g, vctk speech dataset.
   // Not applicable for single-speaker models, e.g., ljspeech dataset

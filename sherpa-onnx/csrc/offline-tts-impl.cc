@@ -24,6 +24,10 @@
 #include "sherpa-onnx/csrc/offline-tts-vits-impl.h"
 #include "sherpa-onnx/csrc/offline-tts-zipvoice-impl.h"
 
+#if SHERPA_ONNX_ENABLE_QNN
+#include "sherpa-onnx/csrc/qnn/offline-tts-vits-model-qnn.h"
+#endif
+
 namespace sherpa_onnx {
 
 std::vector<int64_t> OfflineTtsImpl::AddBlank(const std::vector<int64_t> &x,
@@ -40,6 +44,22 @@ std::vector<int64_t> OfflineTtsImpl::AddBlank(const std::vector<int64_t> &x,
 
 std::unique_ptr<OfflineTtsImpl> OfflineTtsImpl::Create(
     const OfflineTtsConfig &config) {
+  if (config.model.provider == "qnn") {
+#if SHERPA_ONNX_ENABLE_QNN
+    if (!config.model.vits.model.empty() ||
+        !config.model.vits.qnn_config.context_binary.empty()) {
+      return std::make_unique<OfflineTtsVitsTplImpl<OfflineTtsVitsModelQnn>>(
+          config);
+    }
+#else
+    SHERPA_ONNX_LOGE(
+        "Please rebuild sherpa-onnx with -DSHERPA_ONNX_ENABLE_QNN=ON if you "
+        "want to use qnn for TTS.");
+    SHERPA_ONNX_EXIT(-1);
+    return {};
+#endif
+  }
+
   if (!config.model.vits.model.empty()) {
     return std::make_unique<OfflineTtsVitsImpl>(config);
   } else if (!config.model.matcha.acoustic_model.empty()) {
@@ -65,6 +85,22 @@ std::unique_ptr<OfflineTtsImpl> OfflineTtsImpl::Create(
 template <typename Manager>
 std::unique_ptr<OfflineTtsImpl> OfflineTtsImpl::Create(
     Manager *mgr, const OfflineTtsConfig &config) {
+  if (config.model.provider == "qnn") {
+#if SHERPA_ONNX_ENABLE_QNN
+    if (!config.model.vits.model.empty() ||
+        !config.model.vits.qnn_config.context_binary.empty()) {
+      return std::make_unique<OfflineTtsVitsTplImpl<OfflineTtsVitsModelQnn>>(
+          mgr, config);
+    }
+#else
+    SHERPA_ONNX_LOGE(
+        "Please rebuild sherpa-onnx with -DSHERPA_ONNX_ENABLE_QNN=ON if you "
+        "want to use qnn for TTS.");
+    SHERPA_ONNX_EXIT(-1);
+    return {};
+#endif
+  }
+
   if (!config.model.vits.model.empty()) {
     return std::make_unique<OfflineTtsVitsImpl>(mgr, config);
   } else if (!config.model.matcha.acoustic_model.empty()) {

@@ -66,6 +66,10 @@ object TtsEngine {
     private var ttsJson: String? = null
     private var unicodeIndexer: String? = null
     private var voiceStyle: String? = null
+    private var qnnBackendLib: String? = null
+    private var qnnSystemLib: String? = null
+    private var qnnContextBinary: String? = null
+    private var qnnHtpPerfMode: Boolean = false
 
     init {
         // The purpose of such a design is to make the CI test easier
@@ -222,6 +226,14 @@ object TtsEngine {
         // unicodeIndexer = "unicode_indexer.bin"
         // voiceStyle = "voice.bin"
         // supertonicLang = "en"  // ISO 639-1: en, zh, ja, ko, fr, de, es, etc.
+
+        // Example 14: Piper TTS on Qualcomm NPU (QNN HTP V79 - Samsung Galaxy S25 Ultra / SM8750)
+        modelDir = "pipertts-en-qnn-s25-ultra"
+        qnnBackendLib = "libQnnHtp.so"
+        qnnSystemLib = "libQnnSystem.so"
+        qnnContextBinary = "encoder.bin,sdp.bin,flow.bin,decoder.bin"
+        usePhonemize = true
+        lang = "eng"
     }
 
     fun createTts(context: Context) {
@@ -260,7 +272,37 @@ object TtsEngine {
             ttsJson = ttsJson ?: "",
             unicodeIndexer = unicodeIndexer ?: "",
             voiceStyle = voiceStyle ?: "",
+            qnnBackendLib = qnnBackendLib ?: "",
+            qnnSystemLib = qnnSystemLib ?: "",
+            qnnContextBinary = qnnContextBinary ?: "",
+            qnnHtpPerfMode = qnnHtpPerfMode,
         )
+
+        if (config.model.provider == "qnn") {
+            Log.i(TAG, "nativelibdir: ${context.applicationInfo.nativeLibraryDir}")
+            OfflineTts.prependAdspLibraryPath(context.applicationInfo.nativeLibraryDir)
+
+            if (config.model.vits.tokens.isNotEmpty()) {
+                config.model.vits.tokens = copyAssetToInternalStorage(context, config.model.vits.tokens)
+            }
+            if (config.model.vits.lexicon.isNotEmpty()) {
+                config.model.vits.lexicon = copyAssetListToInternalStorage(context, config.model.vits.lexicon)
+            }
+            if (config.model.vits.model.isNotEmpty()) {
+                config.model.vits.model = copyAssetListToInternalStorage(context, config.model.vits.model)
+            }
+            if (config.model.vits.qnnConfig.contextBinary.isNotEmpty()) {
+                config.model.vits.qnnConfig.contextBinary =
+                    copyAssetListToInternalStorage(context, config.model.vits.qnnConfig.contextBinary)
+            }
+            if (config.ruleFsts.isNotEmpty()) {
+                config.ruleFsts = copyAssetListToInternalStorage(context, config.ruleFsts)
+            }
+            if (config.ruleFars.isNotEmpty()) {
+                config.ruleFars = copyAssetListToInternalStorage(context, config.ruleFars)
+            }
+            assets = null
+        }
 
         speed = PreferenceHelper(context).getSpeed()
         speakerId = PreferenceHelper(context).getSid()
@@ -268,6 +310,48 @@ object TtsEngine {
         tts = OfflineTts(assetManager = assets, config = config)
     }
 
+    private fun assetExists(context: Context, path: String): Boolean {
+        val dir = path.substringBeforeLast('/', "")
+        val fileName = path.substringAfterLast('/')
+        val files = context.assets.list(dir) ?: return false
+        return files.contains(fileName)
+    }
+
+    private fun copyAssetToInternalStorage(context: Context, path: String): String {
+        val targetRoot = context.filesDir
+        val outFile = java.io.File(targetRoot, path)
+
+        if (!assetExists(context, path)) {
+            outFile.parentFile?.mkdirs()
+            Log.i(TAG, "$path does not exist in assets, return ${outFile.absolutePath}")
+            return outFile.absolutePath
+        }
+
+        if (outFile.exists()) {
+            val assetSize = context.assets.open(path).use { it.available() }
+            if (outFile.length() == assetSize.toLong()) {
+                Log.i(TAG, "${outFile.absolutePath} already exists, skip copying")
+                return outFile.absolutePath
+            }
+        }
+
+        outFile.parentFile?.mkdirs()
+        context.assets.open(path).use { input ->
+            outFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+        Log.i(TAG, "Copied $path to ${outFile.absolutePath}")
+        return outFile.absolutePath
+    }
+
+    private fun copyAssetListToInternalStorage(context: Context, paths: String): String {
+        if (paths.isBlank()) return paths
+        return paths.split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .joinToString(",") { copyAssetToInternalStorage(context, it) }
+    }
 
     fun phonemize(text: String): Array<IntArray> {
         var voice = tts?.lang() ?: ""

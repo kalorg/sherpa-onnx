@@ -26,11 +26,12 @@
 
 namespace sherpa_onnx {
 
-class OfflineTtsVitsImpl : public OfflineTtsImpl {
+template <typename VitsModel = OfflineTtsVitsModel>
+class OfflineTtsVitsTplImpl : public OfflineTtsImpl {
  public:
-  explicit OfflineTtsVitsImpl(const OfflineTtsConfig &config)
+  explicit OfflineTtsVitsTplImpl(const OfflineTtsConfig &config)
       : config_(config),
-        model_(std::make_unique<OfflineTtsVitsModel>(config.model)) {
+        model_(std::make_unique<VitsModel>(config.model)) {
     InitFrontend();
 
     if (!frontend_ && !config.model.vits.tokens.empty()) {
@@ -48,9 +49,9 @@ class OfflineTtsVitsImpl : public OfflineTtsImpl {
   }
 
   template <typename Manager>
-  OfflineTtsVitsImpl(Manager *mgr, const OfflineTtsConfig &config)
+  OfflineTtsVitsTplImpl(Manager *mgr, const OfflineTtsConfig &config)
       : config_(config),
-        model_(std::make_unique<OfflineTtsVitsModel>(mgr, config.model)) {
+        model_(std::make_unique<VitsModel>(mgr, config.model)) {
     InitFrontend(mgr);
 
     if (!frontend_ && !config.model.vits.tokens.empty()) {
@@ -841,13 +842,15 @@ class OfflineTtsVitsImpl : public OfflineTtsImpl {
 
  private:
   OfflineTtsConfig config_;
-  std::unique_ptr<OfflineTtsVitsModel> model_;
+  std::unique_ptr<VitsModel> model_;
   std::vector<std::unique_ptr<kaldifst::TextNormalizer>> tn_list_;
   std::unordered_map<char32_t, int32_t> token2id_;
   std::unique_ptr<OfflineTtsFrontend> frontend_;
   std::unordered_map<std::string, std::vector<int32_t>> lexicon_;
   int32_t max_lexicon_phrase_len_ = 1;
 };
+
+using OfflineTtsVitsImpl = OfflineTtsVitsTplImpl<OfflineTtsVitsModel>;
 
 }  // namespace sherpa_onnx
 
