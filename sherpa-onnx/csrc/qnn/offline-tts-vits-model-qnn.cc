@@ -62,42 +62,50 @@ class OfflineTtsVitsModelQnn::Impl {
     }
 
     if (filenames.empty() && binary_filenames.empty()) {
-      SHERPA_ONNX_LOGE(
+      throw std::runtime_error(
           "You need to provide either a model or a context binary for "
           "Piper/VITS TTS with QNN");
-      SHERPA_ONNX_EXIT(-1);
+    }
+
+    backend_ = std::make_unique<QnnBackend>(
+        config_.vits.qnn_config.backend_lib,
+        QnnBackendOptions{config_.debug,
+                          config_.vits.qnn_config.htp_perf_mode});
+    if (!backend_->IsInitialized()) {
+      throw std::runtime_error(
+          "Failed to initialize QnnBackend with '" +
+          config_.vits.qnn_config.backend_lib + "'");
     }
 
     bool ok = InitComponent(
         "encoder", filenames.empty() ? "" : filenames[0],
-        binary_filenames.empty() ? "" : binary_filenames[0], &encoder_backend_,
-        &encoder_model_);
+        binary_filenames.empty() ? "" : binary_filenames[0], &encoder_model_);
     if (!ok) {
-      SHERPA_ONNX_EXIT(-1);
+      throw std::runtime_error("Failed to initialize Piper QNN encoder");
     }
     CheckEncoderModel();
 
     ok = InitComponent("sdp", filenames.empty() ? "" : filenames[1],
                        binary_filenames.empty() ? "" : binary_filenames[1],
-                       &sdp_backend_, &sdp_model_);
+                       &sdp_model_);
     if (!ok) {
-      SHERPA_ONNX_EXIT(-1);
+      throw std::runtime_error("Failed to initialize Piper QNN sdp");
     }
     CheckSdpModel();
 
     ok = InitComponent("flow", filenames.empty() ? "" : filenames[2],
                        binary_filenames.empty() ? "" : binary_filenames[2],
-                       &flow_backend_, &flow_model_);
+                       &flow_model_);
     if (!ok) {
-      SHERPA_ONNX_EXIT(-1);
+      throw std::runtime_error("Failed to initialize Piper QNN flow");
     }
     CheckFlowModel();
 
     ok = InitComponent("decoder", filenames.empty() ? "" : filenames[3],
                        binary_filenames.empty() ? "" : binary_filenames[3],
-                       &decoder_backend_, &decoder_model_);
+                       &decoder_model_);
     if (!ok) {
-      SHERPA_ONNX_EXIT(-1);
+      throw std::runtime_error("Failed to initialize Piper QNN decoder");
     }
     CheckDecoderModel();
   }
@@ -216,21 +224,17 @@ class OfflineTtsVitsModelQnn::Impl {
 
   bool InitComponent(const std::string &name, const std::string &lib_filename,
                      const std::string &context_binary,
-                     std::unique_ptr<QnnBackend> *backend,
                      std::unique_ptr<QnnModel> *model) {
-    *backend = std::make_unique<QnnBackend>(
-        config_.vits.qnn_config.backend_lib,
-        QnnBackendOptions{config_.debug,
-                          config_.vits.qnn_config.htp_perf_mode});
-
     if (context_binary.empty()) {
       if (config_.debug) {
         SHERPA_ONNX_LOGE(
             "Init %s from model lib '%s' since context binary is not given.",
             name.c_str(), lib_filename.c_str());
       }
-      (*backend)->InitContext();
-      *model = std::make_unique<QnnModel>(lib_filename, backend->get(),
+      if (!backend_->ContextHandle()) {
+        backend_->InitContext();
+      }
+      *model = std::make_unique<QnnModel>(lib_filename, backend_.get(),
                                           config_.debug);
     } else if (!FileExists(context_binary)) {
       if (config_.debug) {
@@ -239,8 +243,10 @@ class OfflineTtsVitsModelQnn::Impl {
             "exist",
             name.c_str(), lib_filename.c_str(), context_binary.c_str());
       }
-      (*backend)->InitContext();
-      *model = std::make_unique<QnnModel>(lib_filename, backend->get(),
+      if (!backend_->ContextHandle()) {
+        backend_->InitContext();
+      }
+      *model = std::make_unique<QnnModel>(lib_filename, backend_.get(),
                                           config_.debug);
       (*model)->SaveBinaryContext(context_binary);
     } else {
@@ -255,7 +261,7 @@ class OfflineTtsVitsModelQnn::Impl {
         return false;
       }
       *model = std::make_unique<QnnModel>(
-          context_binary, config_.vits.qnn_config.system_lib, backend->get(),
+          context_binary, config_.vits.qnn_config.system_lib, backend_.get(),
           BinaryContextTag{}, config_.debug);
     }
 
@@ -522,16 +528,10 @@ class OfflineTtsVitsModelQnn::Impl {
   int32_t dec_seq_len_ = 64;
   int32_t upsample_factor_ = 256;
 
-  std::unique_ptr<QnnBackend> encoder_backend_;
+  std::unique_ptr<QnnBackend> backend_;
   std::unique_ptr<QnnModel> encoder_model_;
-
-  std::unique_ptr<QnnBackend> sdp_backend_;
   std::unique_ptr<QnnModel> sdp_model_;
-
-  std::unique_ptr<QnnBackend> flow_backend_;
   std::unique_ptr<QnnModel> flow_model_;
-
-  std::unique_ptr<QnnBackend> decoder_backend_;
   std::unique_ptr<QnnModel> decoder_model_;
 };
 

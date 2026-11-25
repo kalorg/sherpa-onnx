@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace 'com.k2fsa.sherpa.onnx'
-    compileSdk 32
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.k2fsa.sherpa.onnx"
-        minSdk 21
-        targetSdk 32
-        versionCode 20261122
-        versionName "2.0.3"
+        minSdk 24
+        targetSdk 34
+        versionCode 20261123
+        versionName "2.0.4"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -42,7 +42,6 @@ android {
 
 dependencies {
 
-    implementation 'com.android.support.constraint:constraint-layout:1.1.3'
     implementation 'androidx.core:core-ktx:1.7.0'
     implementation 'com.google.android.material:material:1.9.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'

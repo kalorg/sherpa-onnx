@@ -52,14 +52,6 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        Log.i(TAG, "Start to initialize TTS")
-        initTts()
-        Log.i(TAG, "Finish initializing TTS")
-
-        Log.i(TAG, "Start to initialize AudioTrack")
-        initAudioTrack()
-        Log.i(TAG, "Finish initializing AudioTrack")
-
         text = findViewById(R.id.text)
         sid = findViewById(R.id.sid)
         speed = findViewById(R.id.speed)
@@ -83,9 +75,35 @@ class MainActivity : AppCompatActivity() {
         val sampleText = "Hello! This voice is synthesized on your Samsung Galaxy S25 Ultra Qualcomm Hexagon NPU using Sherpa ONNX and QNN."
         text.setText(sampleText)
 
+        generate.isEnabled = false
+        generate.text = "Initializing NPU TTS..."
         play.isEnabled = false
         save.isEnabled = false
         share.isEnabled = false
+
+        Thread {
+            try {
+                Log.i(TAG, "Start to initialize TTS")
+                initTts()
+                Log.i(TAG, "Finish initializing TTS")
+
+                Log.i(TAG, "Start to initialize AudioTrack")
+                initAudioTrack()
+                Log.i(TAG, "Finish initializing AudioTrack")
+
+                runOnUiThread {
+                    generate.text = getString(R.string.generate)
+                    generate.isEnabled = true
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Failed to initialize TTS", e)
+                runOnUiThread {
+                    generate.text = "Init failed"
+                    text.setText("Error initializing NPU TTS:\n${e.message}\n\n${Log.getStackTraceString(e)}")
+                    Toast.makeText(applicationContext, "TTS Init Error: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
     }
 
     private fun initAudioTrack() {
