@@ -46,7 +46,8 @@ class OfflineTtsVitsModelQnn::Impl {
           "(libencoder.so,libsdp.so,libflow.so,libdecoder.so). Actual: %d "
           "('%s')",
           static_cast<int32_t>(filenames.size()), config_.vits.model.c_str());
-      SHERPA_ONNX_EXIT(-1);
+      throw std::runtime_error(
+          "Piper QNN: expected 4 model libs, got '" + config_.vits.model + "'");
     }
 
     std::vector<std::string> binary_filenames;
@@ -58,7 +59,10 @@ class OfflineTtsVitsModelQnn::Impl {
           "(encoder.bin,sdp.bin,flow.bin,decoder.bin). Actual: %d ('%s')",
           static_cast<int32_t>(binary_filenames.size()),
           config_.vits.qnn_config.context_binary.c_str());
-      SHERPA_ONNX_EXIT(-1);
+      throw std::runtime_error(
+          "Piper QNN: expected 4 context binaries "
+          "(encoder.bin,sdp.bin,flow.bin,decoder.bin), got '" +
+          config_.vits.qnn_config.context_binary + "'");
     }
 
     if (filenames.empty() && binary_filenames.empty()) {
@@ -116,7 +120,9 @@ class OfflineTtsVitsModelQnn::Impl {
     SHERPA_ONNX_LOGE(
         "Please copy all QNN files from assets to internal storage and set "
         "assetManager to null");
-    SHERPA_ONNX_EXIT(-1);
+    throw std::runtime_error(
+        "Piper QNN: copy model files to internal storage and pass "
+        "assetManager = null");
   }
 
   Ort::Value Run(Ort::Value x, int64_t /*sid*/, float speed,
@@ -237,6 +243,11 @@ class OfflineTtsVitsModelQnn::Impl {
       *model = std::make_unique<QnnModel>(lib_filename, backend_.get(),
                                           config_.debug);
     } else if (!FileExists(context_binary)) {
+      if (lib_filename.empty()) {
+        throw std::runtime_error("Piper QNN " + name +
+                                 ": context binary not found: '" +
+                                 context_binary + "'");
+      }
       if (config_.debug) {
         SHERPA_ONNX_LOGE(
             "Init %s from model lib '%s' since context binary '%s' does not "
@@ -273,7 +284,7 @@ class OfflineTtsVitsModelQnn::Impl {
         !encoder_model_->HasTensor("x_lengths")) {
       SHERPA_ONNX_LOGE(
           "Piper QNN encoder must have inputs 'x' and 'x_lengths'");
-      SHERPA_ONNX_EXIT(-1);
+      throw std::runtime_error("Piper QNN encoder: unexpected tensor names in context binary (see logcat)");
     }
     auto x_shape = encoder_model_->TensorShape("x");
     if (x_shape.size() == 2) {
@@ -297,7 +308,7 @@ class OfflineTtsVitsModelQnn::Impl {
       SHERPA_ONNX_LOGE(
           "Piper QNN sdp must have inputs 'x_encoded', 'x_mask', "
           "'length_scale', 'noise_scale_w'");
-      SHERPA_ONNX_EXIT(-1);
+      throw std::runtime_error("Piper QNN sdp: unexpected tensor names in context binary (see logcat)");
     }
   }
 
@@ -309,7 +320,7 @@ class OfflineTtsVitsModelQnn::Impl {
       SHERPA_ONNX_LOGE(
           "Piper QNN flow must have inputs 'm_p', 'logs_p', 'y_mask', "
           "'attn_squeezed', 'noise_scale'");
-      SHERPA_ONNX_EXIT(-1);
+      throw std::runtime_error("Piper QNN flow: unexpected tensor names in context binary (see logcat)");
     }
     auto y_mask_shape = flow_model_->TensorShape("y_mask");
     if (y_mask_shape.size() == 3) {
@@ -326,7 +337,7 @@ class OfflineTtsVitsModelQnn::Impl {
         !decoder_model_->HasTensor("audio")) {
       SHERPA_ONNX_LOGE(
           "Piper QNN decoder must have input 'z' and output 'audio'");
-      SHERPA_ONNX_EXIT(-1);
+      throw std::runtime_error("Piper QNN decoder: unexpected tensor names in context binary (see logcat)");
     }
     auto z_shape = decoder_model_->TensorShape("z");
     if (z_shape.size() == 3) {

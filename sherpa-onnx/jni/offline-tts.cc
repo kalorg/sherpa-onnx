@@ -568,15 +568,16 @@ JNIEXPORT jlong JNICALL Java_com_k2fsa_sherpa_onnx_OfflineTts_newFromFile(
         auto config = sherpa_onnx::GetOfflineTtsConfig(env, _config, &ok);
 
         if (!ok) {
-          SHERPA_ONNX_LOGE("Please read the error message carefully");
-          return 0;
+          throw std::runtime_error(
+              "Failed to read OfflineTtsConfig from Java object");
         }
 
         SHERPA_ONNX_LOGE("config:\n%s", config.ToString().c_str());
 
         if (!config.Validate()) {
-          SHERPA_ONNX_LOGE("Errors found in config!");
-          return 0;
+          throw std::runtime_error(
+              "Invalid config (check logcat 'sherpa-onnx'): " +
+              config.ToString());
         }
 
         auto tts = new sherpa_onnx::OfflineTts(config);

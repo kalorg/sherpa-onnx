@@ -47,7 +47,9 @@ class QnnBackend::Impl {
   ~Impl() {
     if (context_handle_) {
       auto ret = qnn_interface_.contextFree(context_handle_, nullptr);
-      SHERPA_ONNX_QNN_CHECK(ret, "Failed to call contextFree");
+      if (ret != QNN_SUCCESS) {
+        SHERPA_ONNX_LOGE("Failed to call contextFree: %d", static_cast<int>(ret));
+      }
     }
 
     if (htp_perf_infra_ && htp_power_config_id_ != 0) {
@@ -60,17 +62,23 @@ class QnnBackend::Impl {
 
     if (device_handle_) {
       auto ret = qnn_interface_.deviceFree(device_handle_);
-      SHERPA_ONNX_QNN_CHECK(ret, "Failed to call deviceFree");
+      if (ret != QNN_SUCCESS) {
+        SHERPA_ONNX_LOGE("Failed to call deviceFree: %d", static_cast<int>(ret));
+      }
     }
 
     if (backend_handle_) {
       auto ret = qnn_interface_.backendFree(backend_handle_);
-      SHERPA_ONNX_QNN_CHECK(ret, "Failed to call backendFree");
+      if (ret != QNN_SUCCESS) {
+        SHERPA_ONNX_LOGE("Failed to call backendFree: %d", static_cast<int>(ret));
+      }
     }
 
     if (log_handle_) {
       auto ret = qnn_interface_.logFree(log_handle_);
-      SHERPA_ONNX_QNN_CHECK(ret, "Failed to call logFree");
+      if (ret != QNN_SUCCESS) {
+        SHERPA_ONNX_LOGE("Failed to call logFree: %d", static_cast<int>(ret));
+      }
     }
   }
 

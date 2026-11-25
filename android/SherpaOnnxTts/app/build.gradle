@@ -5,13 +5,13 @@ plugins {
 
 android {
     namespace 'com.k2fsa.sherpa.onnx'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.k2fsa.sherpa.onnx"
         minSdk 24
-        targetSdk 34
-        versionCode 20261123
+        targetSdk 36
+        versionCode 20261125
         versionName "2.0.4"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -27,11 +27,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = "17"
     }
     packagingOptions {
         jniLibs {

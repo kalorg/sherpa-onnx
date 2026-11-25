@@ -35,7 +35,7 @@ bool OfflineTtsModelConfig::Validate() const {
     return false;
   }
 
-  if (!vits.model.empty()) {
+  if (!vits.model.empty() || !vits.qnn_config.context_binary.empty()) {
     return vits.Validate();
   }
 
