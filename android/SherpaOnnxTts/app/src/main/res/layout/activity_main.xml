@@ -21,29 +21,40 @@
             android:orientation="vertical"
             android:padding="10dp">
 
-            <LinearLayout
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:text="Sherpa-ONNX TTS (Samsung Galaxy S25 Ultra)"
+                android:textColor="#102A43"
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
-                <TextView
-                    android:layout_width="0dp"
+            <!-- Explicit Voice Selector -->
+            <RadioGroup
+                android:id="@+id/rg_voices"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="vertical">
+
+                <RadioButton
+                    android:id="@+id/rb_voice_en"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Sherpa-ONNX TTS (S25 Ultra)"
-                    android:textColor="#102A43"
-                    android:textSize="16sp"
+                    android:checked="true"
+                    android:text="⚡ NPU Qualcomm Hexagon V79 : English (Amy)"
+                    android:textColor="#0B69A3"
+                    android:textSize="12sp"
                     android:textStyle="bold" />
 
-                <Button
-                    android:id="@+id/btn_switch_voice"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:text="🇫🇷 Français"
-                    android:textAllCaps="false"
+                <RadioButton
+                    android:id="@+id/rb_voice_fr"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🇫🇷 CPU ONNX Runtime : Français (Siwis)"
+                    android:textColor="#334E68"
                     android:textSize="12sp" />
-            </LinearLayout>
+            </RadioGroup>
 
             <TextView
                 android:id="@+id/tv_backend_status"

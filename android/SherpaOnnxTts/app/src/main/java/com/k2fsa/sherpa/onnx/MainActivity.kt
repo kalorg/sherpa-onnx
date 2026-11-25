@@ -30,7 +30,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var save: Button
     private lateinit var share: Button
 
-    private lateinit var btnSwitchVoice: Button
+    private lateinit var rgVoices: android.widget.RadioGroup
+    private lateinit var rbVoiceEn: android.widget.RadioButton
+    private lateinit var rbVoiceFr: android.widget.RadioButton
     private lateinit var tvBackendStatus: TextView
     private lateinit var btnModeAuto: Button
     private lateinit var btnModeNpu: Button
@@ -67,7 +69,9 @@ class MainActivity : AppCompatActivity() {
         save = findViewById(R.id.save)
         share = findViewById(R.id.share)
 
-        btnSwitchVoice = findViewById(R.id.btn_switch_voice)
+        rgVoices = findViewById(R.id.rg_voices)
+        rbVoiceEn = findViewById(R.id.rb_voice_en)
+        rbVoiceFr = findViewById(R.id.rb_voice_fr)
         tvBackendStatus = findViewById(R.id.tv_backend_status)
         btnModeAuto = findViewById(R.id.btn_mode_auto)
         btnModeNpu = findViewById(R.id.btn_mode_npu)
@@ -84,7 +88,20 @@ class MainActivity : AppCompatActivity() {
         save.setOnClickListener { onClickSave() }
         share.setOnClickListener { onClickShare() }
 
-        btnSwitchVoice.setOnClickListener { onSwitchVoice() }
+        rgVoices.setOnCheckedChangeListener { _, checkedId ->
+            if (checkedId == R.id.rb_voice_en) {
+                TtsManager.setActiveModelDir(TtsManager.EN_MODEL_DIR)
+                TtsManager.reset()
+                text.setText("Hello! This voice is accelerated by Qualcomm Hexagon NPU on your Samsung Galaxy S25 Ultra.")
+                startTtsInit(preferredModel = TtsManager.EN_MODEL_DIR)
+            } else {
+                TtsManager.setActiveModelDir(TtsManager.FR_MODEL_DIR)
+                TtsManager.reset()
+                text.setText("Bonjour ! Cette voix française est synthétisée avec succès par Sherpa-ONNX.")
+                startTtsInit(preferredModel = TtsManager.FR_MODEL_DIR)
+            }
+        }
+
         btnModeAuto.setOnClickListener { onSetMode("auto") }
         btnModeNpu.setOnClickListener { onSetMode("npu") }
         btnModeCpu.setOnClickListener { onSetMode("cpu") }
@@ -109,41 +126,10 @@ class MainActivity : AppCompatActivity() {
         sid.setText("0")
         speed.setText("1.0")
 
-        updateVoiceButtonText()
-        setDefaultSampleText()
+        text.setText("Hello! This voice is accelerated by Qualcomm Hexagon NPU on your Samsung Galaxy S25 Ultra.")
+        TtsManager.setActiveModelDir(TtsManager.EN_MODEL_DIR)
 
-        startTtsInit()
-    }
-
-    private fun updateVoiceButtonText() {
-        val current = TtsManager.getActiveModelDir(applicationContext)
-        if (current.contains("-fr-")) {
-            btnSwitchVoice.text = "🇫🇷 Français (siwis)"
-        } else {
-            btnSwitchVoice.text = "🇺🇸 English (amy)"
-        }
-    }
-
-    private fun setDefaultSampleText() {
-        val current = TtsManager.getActiveModelDir(applicationContext)
-        if (current.contains("-fr-")) {
-            text.setText("Bonjour ! Cette voix française est synthétisée avec succès par Sherpa-ONNX.")
-        } else {
-            text.setText("Hello! This voice is synthesized on your Samsung Galaxy S25 Ultra Qualcomm Hexagon NPU using Sherpa ONNX and QNN.")
-        }
-    }
-
-    private fun onSwitchVoice() {
-        val current = TtsManager.getActiveModelDir(applicationContext)
-        val target = if (current.contains("-fr-")) {
-            TtsManager.EN_MODEL_DIR
-        } else {
-            TtsManager.FR_MODEL_DIR
-        }
-        TtsManager.reset()
-        updateVoiceButtonText()
-        setDefaultSampleText()
-        startTtsInit(preferredModel = target)
+        startTtsInit(preferredModel = TtsManager.EN_MODEL_DIR)
     }
 
     private fun onSetMode(mode: String) {
@@ -178,7 +164,6 @@ class MainActivity : AppCompatActivity() {
                     generate.isEnabled = true
                     tvBackendStatus.text = "Backend: ${TtsManager.getActiveBackend()}"
                     tvPerfMetrics.text = "Prêt: ${TtsManager.getActiveBackend()} | Lang: ${instance.lang()} | ${instance.sampleRate()} Hz"
-                    updateVoiceButtonText()
                     Toast.makeText(
                         applicationContext,
                         "Prêt : ${TtsManager.getActiveBackend()}",

@@ -28,7 +28,7 @@ object TtsManager {
     private var activeBackend: String = "Not Initialized"
 
     @Volatile
-    private var activeModelDir: String = FR_MODEL_DIR
+    private var activeModelDir: String = EN_MODEL_DIR
 
     @Volatile
     private var forcedBackendMode: String = "auto" // "auto", "npu", "cpu"
@@ -46,11 +46,18 @@ object TtsManager {
         forcedBackendMode = mode
     }
 
-    fun getActiveModelDir(context: Context): String {
-        if (hasVoiceInAssetsOrFiles(context, FR_MODEL_DIR)) {
-            return FR_MODEL_DIR
+    fun getActiveModelDir(context: Context? = null): String {
+        if (activeModelDir.isNotEmpty()) {
+            return activeModelDir
+        }
+        if (context != null && hasVoiceInAssetsOrFiles(context, EN_MODEL_DIR)) {
+            return EN_MODEL_DIR
         }
         return EN_MODEL_DIR
+    }
+
+    fun setActiveModelDir(dir: String) {
+        activeModelDir = dir
     }
 
     fun getActiveLocale(context: Context): Locale {
