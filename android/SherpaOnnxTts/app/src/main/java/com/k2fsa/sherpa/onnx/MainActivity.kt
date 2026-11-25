@@ -117,7 +117,32 @@ class MainActivity : AppCompatActivity() {
         btnPresetNarrateur = findViewById(R.id.btn_preset_narrateur)
         btnPresetStandard = findViewById(R.id.btn_preset_standard)
 
+        // Restore persisted voice, backend mode, and acoustic sliders
+        val savedVoiceDir = TtsManager.getActiveModelDir(applicationContext)
+        when (savedVoiceDir) {
+            TtsManager.EN_MODEL_DIR -> {
+                rgVoices.check(R.id.rb_voice_en)
+                text.setText("Hello! This voice is accelerated by Qualcomm Hexagon NPU on your Samsung Galaxy S25 Ultra.")
+            }
+            TtsManager.FR_MODEL_DIR -> {
+                rgVoices.check(R.id.rb_voice_fr)
+                text.setText("Bonjour ! Cette voix française est synthétisée avec le modèle Siwis.")
+            }
+            else -> {
+                rgVoices.check(R.id.rb_voice_narrateur)
+                text.setText("Bonjour ! Cette voix est celle de votre modèle narrateur personnalisé.")
+            }
+        }
+
         setupSliders()
+
+        val defaultNoise = if (savedVoiceDir.contains("narrateur")) 0.35f else 0.67f
+        val defaultNoiseW = if (savedVoiceDir.contains("narrateur")) 0.33f else 0.80f
+        currentSpeed = TtsManager.getSavedSpeed(applicationContext)
+        currentNoiseScale = TtsManager.getSavedNoiseScale(applicationContext, defaultNoise)
+        currentNoiseW = TtsManager.getSavedNoiseW(applicationContext, defaultNoiseW)
+        currentSilenceScale = TtsManager.getSavedSilenceScale(applicationContext, 0.20f)
+        syncSlidersFromState()
 
         generate.setOnClickListener { onClickGenerate() }
         play.setOnClickListener { onClickPlay() }
@@ -128,21 +153,21 @@ class MainActivity : AppCompatActivity() {
         rgVoices.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
                 R.id.rb_voice_narrateur -> {
-                    TtsManager.setActiveModelDir(TtsManager.NARRATEUR_MODEL_DIR)
+                    TtsManager.setActiveModelDir(TtsManager.NARRATEUR_MODEL_DIR, applicationContext)
                     TtsManager.reset()
                     applyAcousticPreset(noiseScale = 0.35f, noiseW = 0.33f)
                     text.setText("Bonjour ! Cette voix est celle de votre modèle narrateur personnalisé.")
                     startTtsInit(preferredModel = TtsManager.NARRATEUR_MODEL_DIR)
                 }
                 R.id.rb_voice_en -> {
-                    TtsManager.setActiveModelDir(TtsManager.EN_MODEL_DIR)
+                    TtsManager.setActiveModelDir(TtsManager.EN_MODEL_DIR, applicationContext)
                     TtsManager.reset()
                     applyAcousticPreset(noiseScale = 0.67f, noiseW = 0.80f)
                     text.setText("Hello! This voice is accelerated by Qualcomm Hexagon NPU on your Samsung Galaxy S25 Ultra.")
                     startTtsInit(preferredModel = TtsManager.EN_MODEL_DIR)
                 }
                 R.id.rb_voice_fr -> {
-                    TtsManager.setActiveModelDir(TtsManager.FR_MODEL_DIR)
+                    TtsManager.setActiveModelDir(TtsManager.FR_MODEL_DIR, applicationContext)
                     TtsManager.reset()
                     applyAcousticPreset(noiseScale = 0.67f, noiseW = 0.80f)
                     text.setText("Bonjour ! Cette voix française est synthétisée avec le modèle Siwis.")
@@ -173,13 +198,36 @@ class MainActivity : AppCompatActivity() {
         }
 
         sid.setText("0")
-        speed.setText("1.0")
-        applyAcousticPreset(noiseScale = 0.35f, noiseW = 0.33f)
 
-        text.setText("Bonjour ! Cette voix est celle de votre modèle narrateur personnalisé.")
-        TtsManager.setActiveModelDir(TtsManager.NARRATEUR_MODEL_DIR)
+        startTtsInit(
+            preferredModel = savedVoiceDir,
+            forceMode = TtsManager.getForcedBackendMode(applicationContext)
+        )
+    }
 
-        startTtsInit(preferredModel = TtsManager.NARRATEUR_MODEL_DIR)
+    private fun persistCurrentAcousticParams() {
+        TtsManager.saveAcousticParams(
+            context = applicationContext,
+            speed = currentSpeed,
+            noiseScale = currentNoiseScale,
+            noiseW = currentNoiseW,
+            silenceScale = currentSilenceScale
+        )
+    }
+
+    private fun syncSlidersFromState() {
+        sbSpeed.progress = ((currentSpeed - 0.50f) * 100.0f).toInt().coerceIn(0, 150)
+        speed.setText(String.format(Locale.ROOT, "%.2f", currentSpeed))
+        tvSpeedVal.text = String.format(Locale.ROOT, "Vitesse : %.2fx", currentSpeed)
+
+        sbNoiseScale.progress = (currentNoiseScale * 100).toInt().coerceIn(0, 100)
+        tvNoiseScaleVal.text = String.format(Locale.ROOT, "Bruit Timbre (noise) : %.2f", currentNoiseScale)
+
+        sbNoiseW.progress = (currentNoiseW * 100).toInt().coerceIn(0, 100)
+        tvNoiseWVal.text = String.format(Locale.ROOT, "Bruit Rythme (noise_w) : %.2f", currentNoiseW)
+
+        sbSilence.progress = (currentSilenceScale * 100).toInt().coerceIn(0, 100)
+        tvSilenceVal.text = String.format(Locale.ROOT, "Pauses (silence) : %.2f", currentSilenceScale)
     }
 
     private fun setupSliders() {
@@ -188,6 +236,7 @@ class MainActivity : AppCompatActivity() {
                 currentSpeed = 0.50f + (progress / 100.0f)
                 speed.setText(String.format(Locale.ROOT, "%.2f", currentSpeed))
                 tvSpeedVal.text = String.format(Locale.ROOT, "Vitesse : %.2fx", currentSpeed)
+                if (fromUser) persistCurrentAcousticParams()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -197,6 +246,7 @@ class MainActivity : AppCompatActivity() {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 currentNoiseScale = progress / 100.0f
                 tvNoiseScaleVal.text = String.format(Locale.ROOT, "Bruit Timbre (noise) : %.2f", currentNoiseScale)
+                if (fromUser) persistCurrentAcousticParams()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -206,6 +256,7 @@ class MainActivity : AppCompatActivity() {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 currentNoiseW = progress / 100.0f
                 tvNoiseWVal.text = String.format(Locale.ROOT, "Bruit Rythme (noise_w) : %.2f", currentNoiseW)
+                if (fromUser) persistCurrentAcousticParams()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -215,6 +266,7 @@ class MainActivity : AppCompatActivity() {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 currentSilenceScale = progress / 100.0f
                 tvSilenceVal.text = String.format(Locale.ROOT, "Pauses (silence) : %.2f", currentSilenceScale)
+                if (fromUser) persistCurrentAcousticParams()
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
@@ -222,32 +274,30 @@ class MainActivity : AppCompatActivity() {
 
         btnPresetSmooth.setOnClickListener {
             applyAcousticPreset(noiseScale = 0.33f, noiseW = 0.33f)
-            Toast.makeText(applicationContext, "Profil Doux anti-métallique appliqué (0.33 / 0.33)", Toast.LENGTH_SHORT).show()
+            Toast.makeText(applicationContext, "Profil Doux anti-métallique appliqué et sauvegardé (0.33 / 0.33)", Toast.LENGTH_SHORT).show()
         }
 
         btnPresetNarrateur.setOnClickListener {
             applyAcousticPreset(noiseScale = 0.50f, noiseW = 0.33f)
-            Toast.makeText(applicationContext, "Profil Config Narrateur appliqué (0.50 / 0.33)", Toast.LENGTH_SHORT).show()
+            Toast.makeText(applicationContext, "Profil Config Narrateur appliqué et sauvegardé (0.50 / 0.33)", Toast.LENGTH_SHORT).show()
         }
 
         btnPresetStandard.setOnClickListener {
             applyAcousticPreset(noiseScale = 0.67f, noiseW = 0.80f)
-            Toast.makeText(applicationContext, "Profil Piper Standard appliqué (0.67 / 0.80)", Toast.LENGTH_SHORT).show()
+            Toast.makeText(applicationContext, "Profil Piper Standard appliqué et sauvegardé (0.67 / 0.80)", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun applyAcousticPreset(noiseScale: Float, noiseW: Float) {
         currentNoiseScale = noiseScale
         currentNoiseW = noiseW
-        sbNoiseScale.progress = (noiseScale * 100).toInt().coerceIn(0, 100)
-        sbNoiseW.progress = (noiseW * 100).toInt().coerceIn(0, 100)
-        tvNoiseScaleVal.text = String.format(Locale.ROOT, "Bruit Timbre (noise) : %.2f", currentNoiseScale)
-        tvNoiseWVal.text = String.format(Locale.ROOT, "Bruit Rythme (noise_w) : %.2f", currentNoiseW)
+        syncSlidersFromState()
+        persistCurrentAcousticParams()
     }
 
     private fun onSetMode(mode: String) {
         TtsManager.reset()
-        TtsManager.setForcedBackendMode(mode)
+        TtsManager.setForcedBackendMode(mode, applicationContext)
         Toast.makeText(applicationContext, "Mode sélectionné : $mode", Toast.LENGTH_SHORT).show()
         startTtsInit(forceMode = mode)
     }

@@ -20,6 +20,14 @@ object TtsManager {
     const val EN_MODEL_DIR = "pipertts-en-qnn-s25-ultra"
     private const val QNN_BINS = "encoder.bin,sdp.bin,flow.bin,decoder.bin"
 
+    private const val PREFS_NAME = "sherpa_tts_prefs"
+    private const val KEY_ACTIVE_MODEL_DIR = "active_model_dir"
+    private const val KEY_BACKEND_MODE = "forced_backend_mode"
+    private const val KEY_SPEED = "acoustic_speed"
+    private const val KEY_NOISE_SCALE = "acoustic_noise_scale"
+    private const val KEY_NOISE_W = "acoustic_noise_w"
+    private const val KEY_SILENCE_SCALE = "acoustic_silence_scale"
+
     private val lock = Any()
 
     @Volatile
@@ -29,7 +37,7 @@ object TtsManager {
     private var activeBackend: String = "Not Initialized"
 
     @Volatile
-    private var activeModelDir: String = EN_MODEL_DIR
+    private var activeModelDir: String = NARRATEUR_MODEL_DIR
 
     @Volatile
     private var forcedBackendMode: String = "auto" // "auto", "npu", "cpu"
@@ -41,40 +49,110 @@ object TtsManager {
 
     fun getActiveBackend(): String = activeBackend
 
-    fun getForcedBackendMode(): String = forcedBackendMode
+    fun getForcedBackendMode(context: Context? = null): String {
+        if (context != null) {
+            val saved = context.applicationContext
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_BACKEND_MODE, null)
+            if (!saved.isNullOrEmpty()) {
+                forcedBackendMode = saved
+            }
+        }
+        return forcedBackendMode
+    }
 
-    fun setForcedBackendMode(mode: String) {
+    fun setForcedBackendMode(mode: String, context: Context? = null) {
         forcedBackendMode = mode
+        context?.applicationContext
+            ?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            ?.edit()
+            ?.putString(KEY_BACKEND_MODE, mode)
+            ?.apply()
     }
 
     fun getActiveModelDir(context: Context? = null): String {
+        if (context != null) {
+            val saved = context.applicationContext
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_ACTIVE_MODEL_DIR, null)
+            if (!saved.isNullOrEmpty()) {
+                activeModelDir = saved
+                return saved
+            }
+        }
         if (activeModelDir.isNotEmpty()) {
             return activeModelDir
         }
-        if (context != null && hasVoiceInAssetsOrFiles(context, EN_MODEL_DIR)) {
-            return EN_MODEL_DIR
-        }
-        return EN_MODEL_DIR
+        return NARRATEUR_MODEL_DIR
     }
 
-    fun setActiveModelDir(dir: String) {
+    fun setActiveModelDir(dir: String, context: Context? = null) {
         activeModelDir = dir
+        context?.applicationContext
+            ?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            ?.edit()
+            ?.putString(KEY_ACTIVE_MODEL_DIR, dir)
+            ?.apply()
     }
+
+    fun saveAcousticParams(
+        context: Context,
+        speed: Float,
+        noiseScale: Float,
+        noiseW: Float,
+        silenceScale: Float
+    ) {
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putFloat(KEY_SPEED, speed)
+            .putFloat(KEY_NOISE_SCALE, noiseScale)
+            .putFloat(KEY_NOISE_W, noiseW)
+            .putFloat(KEY_SILENCE_SCALE, silenceScale)
+            .apply()
+    }
+
+    fun getSavedSpeed(context: Context): Float =
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getFloat(KEY_SPEED, 1.0f)
+
+    fun getSavedNoiseScale(context: Context, defaultVal: Float = 0.35f): Float =
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getFloat(KEY_NOISE_SCALE, defaultVal)
+
+    fun getSavedNoiseW(context: Context, defaultVal: Float = 0.33f): Float =
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getFloat(KEY_NOISE_W, defaultVal)
+
+    fun getSavedSilenceScale(context: Context, defaultVal: Float = 0.20f): Float =
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getFloat(KEY_SILENCE_SCALE, defaultVal)
+
+    fun hasSavedAcousticParams(context: Context): Boolean =
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .contains(KEY_NOISE_SCALE)
 
     fun getActiveLocale(context: Context): Locale {
+        val dir = getActiveModelDir(context)
         val t = ttsInstance
         val lang = t?.lang()?.lowercase(Locale.ROOT).orEmpty()
-        if (lang.startsWith("fr") || activeModelDir.contains("-fr-") || activeModelDir.contains("narrateur")) {
+        if (lang.startsWith("fr") || dir.contains("-fr-") || dir.contains("narrateur")) {
             return Locale.FRANCE
         }
         return Locale.US
     }
 
     fun getVoiceId(context: Context): String {
+        val dir = getActiveModelDir(context)
         val locale = getActiveLocale(context)
         val name = when {
-            activeModelDir.contains("narrateur") -> "narrateur"
-            activeModelDir.contains("-fr-") -> "siwis"
+            dir.contains("narrateur") -> "narrateur"
+            dir.contains("-fr-") -> "siwis"
             else -> "amy"
         }
         return "piper-${locale.language}-$name"
@@ -93,8 +171,8 @@ object TtsManager {
         forceMode: String? = null
     ): OfflineTts {
         val appContext = context.applicationContext
-        val targetDir = preferredModelDir ?: if (activeModelDir.isNotEmpty()) activeModelDir else getActiveModelDir(appContext)
-        var mode = forceMode ?: forcedBackendMode
+        val targetDir = preferredModelDir ?: getActiveModelDir(appContext)
+        var mode = forceMode ?: getForcedBackendMode(appContext)
 
         ttsInstance?.let {
             if (activeModelDir == targetDir && forcedBackendMode == mode) return it

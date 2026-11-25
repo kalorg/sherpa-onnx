@@ -71,10 +71,12 @@ class TtsService : TextToSpeechService() {
         if (avail == TextToSpeech.LANG_NOT_SUPPORTED) {
             return TextToSpeech.LANG_NOT_SUPPORTED
         }
-        val targetDir = if (lang?.lowercase(Locale.ROOT)?.startsWith("en") == true) {
-            "pipertts-en-qnn-s25-ultra"
-        } else {
-            "pipertts-fr-qnn-s25-ultra"
+        val savedDir = TtsManager.getActiveModelDir(applicationContext)
+        val reqLang = lang?.lowercase(Locale.ROOT).orEmpty()
+        val targetDir = when {
+            reqLang.startsWith("en") && savedDir == TtsManager.EN_MODEL_DIR -> TtsManager.EN_MODEL_DIR
+            savedDir.isNotEmpty() -> savedDir
+            else -> TtsManager.NARRATEUR_MODEL_DIR
         }
         Thread {
             runCatching { TtsManager.ensureInitialized(applicationContext, targetDir) }
@@ -84,7 +86,7 @@ class TtsService : TextToSpeechService() {
 
     override fun onGetVoices(): List<Voice> {
         val voices = mutableListOf<Voice>()
-        if (TtsManager.hasVoiceInAssetsOrFiles(applicationContext, "pipertts-fr-narrateur-s25-ultra")) {
+        if (TtsManager.hasVoiceInAssetsOrFiles(applicationContext, TtsManager.NARRATEUR_MODEL_DIR)) {
             voices.add(
                 Voice(
                     "piper-fr-narrateur",
@@ -96,7 +98,7 @@ class TtsService : TextToSpeechService() {
                 )
             )
         }
-        if (TtsManager.hasVoiceInAssetsOrFiles(applicationContext, "pipertts-fr-qnn-s25-ultra")) {
+        if (TtsManager.hasVoiceInAssetsOrFiles(applicationContext, TtsManager.FR_MODEL_DIR)) {
             voices.add(
                 Voice(
                     "piper-fr-siwis",
@@ -108,7 +110,7 @@ class TtsService : TextToSpeechService() {
                 )
             )
         }
-        if (TtsManager.hasVoiceInAssetsOrFiles(applicationContext, "pipertts-en-qnn-s25-ultra")) {
+        if (TtsManager.hasVoiceInAssetsOrFiles(applicationContext, TtsManager.EN_MODEL_DIR)) {
             voices.add(
                 Voice(
                     "piper-en-amy-qnn",
@@ -128,13 +130,11 @@ class TtsService : TextToSpeechService() {
         country: String?,
         variant: String?
     ): String? {
-        val norm = lang?.lowercase(Locale.ROOT).orEmpty()
-        return if (norm.startsWith("en")) {
-            "piper-en-amy-qnn"
-        } else if (TtsManager.hasVoiceInAssetsOrFiles(applicationContext, "pipertts-fr-narrateur-s25-ultra")) {
-            "piper-fr-narrateur"
-        } else {
-            "piper-fr-siwis"
+        val savedDir = TtsManager.getActiveModelDir(applicationContext)
+        return when (savedDir) {
+            TtsManager.FR_MODEL_DIR -> "piper-fr-siwis"
+            TtsManager.EN_MODEL_DIR -> "piper-en-amy-qnn"
+            else -> "piper-fr-narrateur"
         }
     }
 
@@ -153,12 +153,7 @@ class TtsService : TextToSpeechService() {
         if (onIsValidVoiceName(voiceName) != TextToSpeech.SUCCESS) {
             return TextToSpeech.ERROR
         }
-        val targetDir = when {
-            voiceName?.contains("narrateur") == true -> "pipertts-fr-narrateur-s25-ultra"
-            voiceName?.contains("siwis") == true -> "pipertts-fr-qnn-s25-ultra"
-            voiceName?.contains("en") == true -> "pipertts-en-qnn-s25-ultra"
-            else -> "pipertts-fr-narrateur-s25-ultra"
-        }
+        val targetDir = TtsManager.getActiveModelDir(applicationContext)
         Thread {
             runCatching { TtsManager.ensureInitialized(applicationContext, targetDir) }
         }.start()
@@ -181,14 +176,10 @@ class TtsService : TextToSpeechService() {
             return
         }
 
-        val reqLang = request.language?.lowercase(Locale.ROOT).orEmpty()
-        val targetDir = if (reqLang.startsWith("en")) {
-            "pipertts-en-qnn-s25-ultra"
-        } else {
-            "pipertts-fr-qnn-s25-ultra"
-        }
+        val targetDir = TtsManager.getActiveModelDir(applicationContext)
+        val forceMode = TtsManager.getForcedBackendMode(applicationContext)
         val tts = try {
-            TtsManager.ensureInitialized(applicationContext, targetDir)
+            TtsManager.ensureInitialized(applicationContext, targetDir, forceMode)
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to init TTS in onSynthesizeText", e)
             callback.error()
@@ -196,7 +187,15 @@ class TtsService : TextToSpeechService() {
         }
 
         val rate = runCatching { request.speechRate }.getOrDefault(100)
-        val speed = if (rate > 0) (rate / 100.0f).coerceIn(0.25f, 3.0f) else 1.0f
+        val reqSpeedMultiplier = if (rate > 0) (rate / 100.0f).coerceIn(0.25f, 3.0f) else 1.0f
+        val userSpeed = TtsManager.getSavedSpeed(applicationContext)
+        val finalSpeed = (userSpeed * reqSpeedMultiplier).coerceIn(0.25f, 3.0f)
+
+        val defaultNoise = if (targetDir.contains("narrateur")) 0.35f else 0.67f
+        val defaultNoiseW = if (targetDir.contains("narrateur")) 0.33f else 0.80f
+        val noiseScale = TtsManager.getSavedNoiseScale(applicationContext, defaultNoise)
+        val noiseW = TtsManager.getSavedNoiseW(applicationContext, defaultNoiseW)
+        val silenceScale = TtsManager.getSavedSilenceScale(applicationContext, 0.20f)
 
         callback.start(tts.sampleRate(), AudioFormat.ENCODING_PCM_16BIT, 1)
         if (text.isEmpty()) {
@@ -205,7 +204,15 @@ class TtsService : TextToSpeechService() {
         }
 
         try {
-            val genConfig = GenerationConfig(sid = 0, speed = speed)
+            val genConfig = GenerationConfig(
+                sid = 0,
+                speed = finalSpeed,
+                silenceScale = silenceScale,
+                extra = mapOf(
+                    "noise_scale" to String.format(Locale.ROOT, "%.3f", noiseScale),
+                    "noise_scale_w" to String.format(Locale.ROOT, "%.3f", noiseW)
+                )
+            )
             genConfig.phonemeCodepoints = TtsManager.phonemize(tts, text)
 
             tts.generateWithConfigAndCallback(
