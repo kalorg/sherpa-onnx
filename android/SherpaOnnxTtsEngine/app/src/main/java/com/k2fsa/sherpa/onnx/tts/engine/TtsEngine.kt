@@ -283,6 +283,10 @@ object TtsEngine {
             OfflineTts.prependAdspLibraryPath(context.applicationInfo.nativeLibraryDir)
 
             if (config.model.vits.tokens.isNotEmpty()) {
+                val cfgAsset = "${modelDir!!}/config.json"
+                if (assetExists(context, cfgAsset)) {
+                    copyAssetToInternalStorage(context, cfgAsset)
+                }
                 config.model.vits.tokens = copyAssetToInternalStorage(context, config.model.vits.tokens)
             }
             if (config.model.vits.lexicon.isNotEmpty()) {

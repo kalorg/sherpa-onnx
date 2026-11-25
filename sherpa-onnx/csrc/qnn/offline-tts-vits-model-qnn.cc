@@ -23,6 +23,7 @@
 #include "rawfile/raw_file_manager.h"
 #endif
 
+#include "nlohmann/json.hpp"
 #include "sherpa-onnx/csrc/file-utils.h"
 #include "sherpa-onnx/csrc/qnn/macros.h"
 #include "sherpa-onnx/csrc/qnn/qnn-backend.h"
@@ -166,6 +167,51 @@ class OfflineTtsVitsModelQnn::Impl {
     meta_data_.is_piper = true;
     meta_data_.voice = "en-us";
     meta_data_.language = "English";
+
+    // Look for config.json in the same directory as tokens.txt to read
+    // espeak.voice (e.g. "fr", "en-us"), audio.sample_rate, or Qualcomm
+    // config.json voices[0].language / sample_rate.
+    std::string dir;
+    auto slash_pos = config_.vits.tokens.find_last_of("/\\");
+    if (slash_pos != std::string::npos) {
+      dir = config_.vits.tokens.substr(0, slash_pos);
+    }
+    if (!dir.empty()) {
+      std::string cfg_path = dir + "/config.json";
+      if (FileExists(cfg_path)) {
+        try {
+          auto buf = ReadFile(cfg_path);
+          auto j = nlohmann::json::parse(buf.begin(), buf.end());
+          if (j.contains("espeak") && j["espeak"].contains("voice")) {
+            meta_data_.voice = j["espeak"]["voice"].get<std::string>();
+          } else if (j.contains("voices") && j["voices"].is_array() &&
+                     !j["voices"].empty()) {
+            const auto &v0 = j["voices"][0];
+            if (v0.contains("language")) {
+              std::string lang = v0["language"].get<std::string>();
+              meta_data_.voice = (lang == "en") ? "en-us" : lang;
+            }
+            if (v0.contains("sample_rate")) {
+              meta_data_.sample_rate = v0["sample_rate"].get<int32_t>();
+            }
+          }
+          if (j.contains("audio") && j["audio"].contains("sample_rate")) {
+            meta_data_.sample_rate = j["audio"]["sample_rate"].get<int32_t>();
+          }
+          if (j.contains("num_speakers")) {
+            meta_data_.num_speakers = j["num_speakers"].get<int32_t>();
+          }
+          if (config_.debug) {
+            SHERPA_ONNX_LOGE(
+                "Loaded Piper QNN config.json: voice='%s', sample_rate=%d",
+                meta_data_.voice.c_str(), meta_data_.sample_rate);
+          }
+        } catch (const std::exception &e) {
+          SHERPA_ONNX_LOGE("Warning: failed to parse '%s': %s",
+                           cfg_path.c_str(), e.what());
+        }
+      }
+    }
   }
 
   bool InitComponent(const std::string &name, const std::string &lib_filename,

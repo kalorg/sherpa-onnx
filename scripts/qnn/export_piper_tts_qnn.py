@@ -77,6 +77,8 @@ def main() -> None:
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     generate_tokens_txt(args.config, args.output_dir / "tokens.txt")
+    shutil.copy2(args.config, args.output_dir / "config.json")
+    print(f"[+] Copied voice config to {args.output_dir / 'config.json'}")
 
     try:
         import qai_hub as hub

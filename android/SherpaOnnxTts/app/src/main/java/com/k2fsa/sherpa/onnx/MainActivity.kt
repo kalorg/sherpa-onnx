@@ -464,6 +464,10 @@ class MainActivity : AppCompatActivity() {
             OfflineTts.prependAdspLibraryPath(applicationInfo.nativeLibraryDir)
 
             if (config.model.vits.tokens.isNotEmpty()) {
+                val cfgAsset = "$modelDir/config.json"
+                if (assetExists(cfgAsset)) {
+                    copyAssetToInternalStorage(cfgAsset)
+                }
                 config.model.vits.tokens = copyAssetToInternalStorage(config.model.vits.tokens)
             }
             if (config.model.vits.lexicon.isNotEmpty()) {
