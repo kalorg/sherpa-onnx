@@ -111,44 +111,100 @@ def main() -> None:
         model_g = build_model_from_onnx(str(args.onnx), str(args.config))
     else:
         print(f"[+] Loading PyTorch SynthesizerTrn from checkpoint: {args.checkpoint}")
-        vits_model = VitsModel.load_from_checkpoint(
-            str(args.checkpoint),
-            map_location="cpu",
-            weights_only=False,
-            dataset=None,
+        ckpt = torch.load(str(args.checkpoint), map_location="cpu", weights_only=False)
+        with open(args.config, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        from piper_train.vits.models import SynthesizerTrn
+        model_g = SynthesizerTrn(
+            n_vocab=cfg["num_symbols"],
+            spec_channels=513,
+            segment_size=32,
+            inter_channels=192,
+            hidden_channels=192,
+            filter_channels=768,
+            n_heads=2,
+            n_layers=6,
+            kernel_size=3,
+            p_dropout=0.1,
+            resblock="2",
+            resblock_kernel_sizes=(3, 5, 7),
+            resblock_dilation_sizes=((1, 2), (2, 6), (3, 12)),
+            upsample_rates=(8, 8, 4),
+            upsample_initial_channel=256,
+            upsample_kernel_sizes=(16, 16, 8),
+            n_speakers=cfg.get("num_speakers", 1),
+            gin_channels=0,
+            use_sdp=True,
         )
-        model_g = vits_model.model_g
+        model_g_state = {
+            k[len("model_g."):]: v
+            for k, v in ckpt["state_dict"].items()
+            if k.startswith("model_g.")
+        }
+        model_g.load_state_dict(model_g_state, strict=True)
+        model_g.eval()
+        with torch.no_grad():
+            model_g.dec.remove_weight_norm()
+            for flow_layer in model_g.flow.flows:
+                if hasattr(flow_layer, "enc"):
+                    flow_layer.enc.remove_weight_norm()
 
     model_g.eval()
 
+    from qai_hub_models import Precision, TargetRuntime
+
     components = {
-        "encoder": (Encoder(model_g), "--target_runtime qnn_context_binary --truncate_64bit_tensors --truncate_64bit_io"),
-        "sdp": (SDP(model_g), "--target_runtime qnn_context_binary"),
-        "flow": (Flow(model_g), "--target_runtime qnn_context_binary"),
-        "decoder": (Decoder(model_g), "--target_runtime qnn_context_binary --quantize_io"),
+        "encoder": Encoder(model_g),
+        "sdp": SDP(model_g),
+        "flow": Flow(model_g),
+        "decoder": Decoder(model_g),
     }
 
     target_device = hub.Device(args.device)
 
-    for name, (comp, compile_opts) in components.items():
+    jobs = {}
+    for name, comp in components.items():
         comp.eval()
         input_spec = comp.get_input_spec()
+        compile_opts = comp.get_hub_compile_options(
+            TargetRuntime.QNN_CONTEXT_BINARY, Precision.float
+        )
         sample_inputs = comp.sample_inputs()
         pt_inputs = tuple(
             torch.from_numpy(v[0]) for v in sample_inputs.values()
         )
-        print(f"[+] Tracing {name} with input_spec={input_spec} ...")
+        print(f"[+] Tracing {name} ...")
         traced = torch.jit.trace(comp, pt_inputs)
-        print(f"[+] Submitting compile job for {name} on '{args.device}' ...")
+        print(f"[+] Submitting compile job for {name} on '{args.device}' (options: {compile_opts}) ...")
         job = hub.submit_compile_job(
             model=traced,
             device=target_device,
             input_specs=input_spec,
             options=compile_opts,
+            name=f"pipertts_{args.output_dir.name}_{name}",
         )
+        print(f"[+] Job submitted for {name}: {job.job_id}")
+        jobs[name] = job
+
+    # 2. Submit link jobs (DLC -> QNN Context Binary)
+    link_jobs = {}
+    for name, c_job in jobs.items():
+        c_job.wait()
+        dlc_model = c_job.get_target_model()
+        print(f"[+] Submitting link job for {name} on '{args.device}' ...")
+        l_job = hub.submit_link_job(
+            models=dlc_model,
+            device=target_device,
+            name=f"link_{args.output_dir.name}_{name}",
+        )
+        print(f"[+] Link job submitted for {name}: {l_job.job_id}")
+        link_jobs[name] = l_job
+
+    for name, l_job in link_jobs.items():
         out_bin = args.output_dir / f"{name}.bin"
-        print(f"[+] Waiting for {name} compile job ({job.job_id}) and downloading to {out_bin} ...")
-        job.download_target_model(str(out_bin))
+        print(f"[+] Waiting for {name} link job ({l_job.job_id}) and downloading to {out_bin} ...")
+        l_job.download_target_model(str(out_bin))
+        print(f"[✓] Downloaded {out_bin.name} ({out_bin.stat().st_size / 1024:.1f} KB)")
 
     print(f"\n[✓] Done! Model files for Sherpa-ONNX QNN TTS are in: {args.output_dir}")
     for p in sorted(args.output_dir.iterdir()):
