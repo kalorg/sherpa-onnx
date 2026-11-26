@@ -584,8 +584,8 @@ class OfflineTtsVitsTplImpl : public OfflineTtsImpl {
       audio = model_->Run(std::move(x_tensor), sid, speed, emotion_id,
                           noise_scale, noise_scale_w);
     } else {
-      audio =
-          model_->Run(std::move(x_tensor), std::move(tones_tensor), sid, speed);
+      audio = model_->Run(std::move(x_tensor), std::move(tones_tensor), sid,
+                          speed, noise_scale, noise_scale_w);
     }
 
     std::vector<int64_t> audio_shape =

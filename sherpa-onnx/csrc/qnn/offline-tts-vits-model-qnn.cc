@@ -125,7 +125,7 @@ class OfflineTtsVitsModelQnn::Impl {
         "assetManager = null");
   }
 
-  Ort::Value Run(Ort::Value x, int64_t /*sid*/, float speed,
+  Ort::Value Run(Ort::Value x, int64_t sid, float speed,
                  int64_t /*emotion_id*/, float noise_scale = -1.0f,
                  float noise_scale_w = -1.0f) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -146,8 +146,10 @@ class OfflineTtsVitsModelQnn::Impl {
     // chunks of max_seq_len_
     for (int32_t offset = 0; offset < num_tokens; offset += max_seq_len_) {
       int32_t chunk_len = std::min(max_seq_len_, num_tokens - offset);
-      std::vector<float> chunk_audio = RunSingleChunk(
-          x_ptr + offset, chunk_len, speed, noise_scale, noise_scale_w);
+      std::vector<float> chunk_audio =
+          RunSingleChunk(x_ptr + offset, nullptr, chunk_len,
+                         static_cast<int32_t>(sid), speed, noise_scale,
+                         noise_scale_w);
       audio_samples.insert(audio_samples.end(), chunk_audio.begin(),
                            chunk_audio.end());
     }
@@ -165,11 +167,45 @@ class OfflineTtsVitsModelQnn::Impl {
     return out;
   }
 
-  Ort::Value Run(Ort::Value /*x*/, Ort::Value /*tones*/, int64_t /*sid*/,
-                 float /*speed*/) const {
-    SHERPA_ONNX_LOGE("MeloTTS with tones is not supported in Piper QNN mode.");
-    SHERPA_ONNX_EXIT(-1);
-    return Ort::Value{nullptr};
+  Ort::Value Run(Ort::Value x, Ort::Value tones, int64_t sid, float speed,
+                 float noise_scale = -1.0f,
+                 float noise_scale_w = -1.0f) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    std::vector<int64_t> x_shape = x.GetTensorTypeAndShapeInfo().GetShape();
+    if (x_shape[0] != 1) {
+      SHERPA_ONNX_LOGE("Support only batch_size == 1. Given: %d",
+                       static_cast<int32_t>(x_shape[0]));
+      SHERPA_ONNX_EXIT(-1);
+    }
+
+    const int64_t *x_ptr = x.GetTensorData<int64_t>();
+    const int64_t *tones_ptr = tones.GetTensorData<int64_t>();
+    int32_t num_tokens = static_cast<int32_t>(x_shape[1]);
+
+    std::vector<float> audio_samples;
+
+    for (int32_t offset = 0; offset < num_tokens; offset += max_seq_len_) {
+      int32_t chunk_len = std::min(max_seq_len_, num_tokens - offset);
+      std::vector<float> chunk_audio =
+          RunSingleChunk(x_ptr + offset, tones_ptr + offset, chunk_len,
+                         static_cast<int32_t>(sid), speed, noise_scale,
+                         noise_scale_w);
+      audio_samples.insert(audio_samples.end(), chunk_audio.begin(),
+                           chunk_audio.end());
+    }
+
+    if (audio_samples.empty()) {
+      audio_samples.push_back(0.0f);
+    }
+
+    int64_t out_shape[1] = {static_cast<int64_t>(audio_samples.size())};
+    Ort::Value out = Ort::Value::CreateTensor<float>(
+        allocator_, out_shape, 1);
+    float *out_ptr = out.GetTensorMutableData<float>();
+    std::memcpy(out_ptr, audio_samples.data(),
+                audio_samples.size() * sizeof(float));
+    return out;
   }
 
   const OfflineTtsVitsModelMetaData &GetMetaData() const { return meta_data_; }
@@ -180,6 +216,7 @@ class OfflineTtsVitsModelQnn::Impl {
     meta_data_.add_blank = 1;
     meta_data_.num_speakers = 1;
     meta_data_.is_piper = true;
+    meta_data_.is_melo_tts = false;
     meta_data_.voice = "en-us";
     meta_data_.language = "English";
 
@@ -197,6 +234,17 @@ class OfflineTtsVitsModelQnn::Impl {
         try {
           auto buf = ReadFile(cfg_path);
           auto j = nlohmann::json::parse(buf.begin(), buf.end());
+          if (j.contains("model_type") &&
+              j["model_type"].get<std::string>() == "melo") {
+            meta_data_.is_melo_tts = true;
+            meta_data_.is_piper = false;
+            meta_data_.add_blank = 1;
+            meta_data_.num_speakers = 5;
+            meta_data_.sample_rate = 44100;
+            meta_data_.language = "English";
+            meta_data_.voice = "en";
+            meta_data_.jieba = 0;
+          }
           if (j.contains("espeak") && j["espeak"].contains("voice")) {
             meta_data_.voice = j["espeak"]["voice"].get<std::string>();
           } else if (j.contains("voices") && j["voices"].is_array() &&
@@ -204,7 +252,9 @@ class OfflineTtsVitsModelQnn::Impl {
             const auto &v0 = j["voices"][0];
             if (v0.contains("language")) {
               std::string lang = v0["language"].get<std::string>();
-              meta_data_.voice = (lang == "en") ? "en-us" : lang;
+              meta_data_.voice = (lang == "en" && !meta_data_.is_melo_tts)
+                                     ? "en-us"
+                                     : lang;
             }
             if (v0.contains("sample_rate")) {
               meta_data_.sample_rate = v0["sample_rate"].get<int32_t>();
@@ -218,8 +268,11 @@ class OfflineTtsVitsModelQnn::Impl {
           }
           if (config_.debug) {
             SHERPA_ONNX_LOGE(
-                "Loaded Piper QNN config.json: voice='%s', sample_rate=%d",
-                meta_data_.voice.c_str(), meta_data_.sample_rate);
+                "Loaded QNN TTS config.json: model_type='%s', voice='%s', "
+                "sample_rate=%d, num_speakers=%d",
+                meta_data_.is_melo_tts ? "melo" : "piper",
+                meta_data_.voice.c_str(), meta_data_.sample_rate,
+                meta_data_.num_speakers);
           }
         } catch (const std::exception &e) {
           SHERPA_ONNX_LOGE("Warning: failed to parse '%s': %s",
@@ -245,7 +298,7 @@ class OfflineTtsVitsModelQnn::Impl {
                                           config_.debug);
     } else if (!FileExists(context_binary)) {
       if (lib_filename.empty()) {
-        throw std::runtime_error("Piper QNN " + name +
+        throw std::runtime_error("QNN TTS " + name +
                                  ": context binary not found: '" +
                                  context_binary + "'");
       }
@@ -284,8 +337,9 @@ class OfflineTtsVitsModelQnn::Impl {
     if (!encoder_model_->HasTensor("x") ||
         !encoder_model_->HasTensor("x_lengths")) {
       SHERPA_ONNX_LOGE(
-          "Piper QNN encoder must have inputs 'x' and 'x_lengths'");
-      throw std::runtime_error("Piper QNN encoder: unexpected tensor names in context binary (see logcat)");
+          "QNN TTS encoder must have inputs 'x' and 'x_lengths'");
+      throw std::runtime_error(
+          "QNN TTS encoder: unexpected tensor names in context binary (see logcat)");
     }
     auto x_shape = encoder_model_->TensorShape("x");
     if (x_shape.size() == 2) {
@@ -295,9 +349,26 @@ class OfflineTtsVitsModelQnn::Impl {
     if (m_p_shape.size() == 3) {
       hidden_dim_ = m_p_shape[1];
     }
+    is_melo_ = encoder_model_->HasTensor("tone") &&
+               encoder_model_->HasTensor("g");
+    if (is_melo_) {
+      if (encoder_model_->HasTensor("bert")) {
+        auto b_shape = encoder_model_->TensorShape("bert");
+        if (b_shape.size() == 3) {
+          bert_dim_ = b_shape[1];
+        }
+      }
+      if (encoder_model_->HasTensor("ja_bert")) {
+        auto jb_shape = encoder_model_->TensorShape("ja_bert");
+        if (jb_shape.size() == 3) {
+          ja_bert_dim_ = jb_shape[1];
+        }
+      }
+    }
     if (config_.debug) {
-      SHERPA_ONNX_LOGE("Piper QNN encoder: max_seq_len=%d, hidden_dim=%d",
-                       max_seq_len_, hidden_dim_);
+      SHERPA_ONNX_LOGE(
+          "QNN TTS encoder (%s): max_seq_len=%d, hidden_dim=%d",
+          is_melo_ ? "MeloTTS" : "Piper", max_seq_len_, hidden_dim_);
     }
   }
 
@@ -307,9 +378,10 @@ class OfflineTtsVitsModelQnn::Impl {
         !sdp_model_->HasTensor("length_scale") ||
         !sdp_model_->HasTensor("noise_scale_w")) {
       SHERPA_ONNX_LOGE(
-          "Piper QNN sdp must have inputs 'x_encoded', 'x_mask', "
+          "QNN TTS sdp must have inputs 'x_encoded', 'x_mask', "
           "'length_scale', 'noise_scale_w'");
-      throw std::runtime_error("Piper QNN sdp: unexpected tensor names in context binary (see logcat)");
+      throw std::runtime_error(
+          "QNN TTS sdp: unexpected tensor names in context binary (see logcat)");
     }
   }
 
@@ -319,16 +391,17 @@ class OfflineTtsVitsModelQnn::Impl {
         !flow_model_->HasTensor("attn_squeezed") ||
         !flow_model_->HasTensor("noise_scale")) {
       SHERPA_ONNX_LOGE(
-          "Piper QNN flow must have inputs 'm_p', 'logs_p', 'y_mask', "
+          "QNN TTS flow must have inputs 'm_p', 'logs_p', 'y_mask', "
           "'attn_squeezed', 'noise_scale'");
-      throw std::runtime_error("Piper QNN flow: unexpected tensor names in context binary (see logcat)");
+      throw std::runtime_error(
+          "QNN TTS flow: unexpected tensor names in context binary (see logcat)");
     }
     auto y_mask_shape = flow_model_->TensorShape("y_mask");
     if (y_mask_shape.size() == 3) {
       upsampled_max_seq_len_ = y_mask_shape[2];
     }
     if (config_.debug) {
-      SHERPA_ONNX_LOGE("Piper QNN flow: upsampled_max_seq_len=%d",
+      SHERPA_ONNX_LOGE("QNN TTS flow: upsampled_max_seq_len=%d",
                        upsampled_max_seq_len_);
     }
   }
@@ -337,8 +410,9 @@ class OfflineTtsVitsModelQnn::Impl {
     if (!decoder_model_->HasTensor("z") ||
         !decoder_model_->HasTensor("audio")) {
       SHERPA_ONNX_LOGE(
-          "Piper QNN decoder must have input 'z' and output 'audio'");
-      throw std::runtime_error("Piper QNN decoder: unexpected tensor names in context binary (see logcat)");
+          "QNN TTS decoder must have input 'z' and output 'audio'");
+      throw std::runtime_error(
+          "QNN TTS decoder: unexpected tensor names in context binary (see logcat)");
     }
     auto z_shape = decoder_model_->TensorShape("z");
     if (z_shape.size() == 3) {
@@ -351,13 +425,14 @@ class OfflineTtsVitsModelQnn::Impl {
     }
     if (config_.debug) {
       SHERPA_ONNX_LOGE(
-          "Piper QNN decoder: dec_seq_len=%d, upsample_factor=%d",
+          "QNN TTS decoder: dec_seq_len=%d, upsample_factor=%d",
           dec_seq_len_, upsample_factor_);
     }
   }
 
-  std::vector<float> RunSingleChunk(const int64_t *tokens, int32_t actual_len,
-                                    float speed,
+  std::vector<float> RunSingleChunk(const int64_t *tokens,
+                                    const int64_t *tones, int32_t actual_len,
+                                    int32_t sid, float speed,
                                     float noise_scale_override = -1.0f,
                                     float noise_scale_w_override = -1.0f) const {
     // 1. Prepare padded int32 inputs for encoder: x [1, max_seq_len_],
@@ -370,8 +445,42 @@ class OfflineTtsVitsModelQnn::Impl {
 
     encoder_model_->SetInputTensorData("x", x_padded.data(), x_padded.size());
     encoder_model_->SetInputTensorData("x_lengths", x_lengths, 1);
+
+    std::vector<int32_t> tone_padded;
+    std::vector<int32_t> lang_padded;
+    std::vector<float> bert_zeros;
+    std::vector<float> ja_bert_zeros;
+    int32_t sid_arr[1] = {std::max(0, sid)};
+
+    if (is_melo_) {
+      tone_padded.assign(max_seq_len_, 0);
+      lang_padded.assign(max_seq_len_, 0);
+      for (int32_t i = 0; i < actual_len; ++i) {
+        if (tones != nullptr) {
+          tone_padded[i] = static_cast<int32_t>(tones[i]);
+        }
+        // In MeloTTS-EN with add_blank=1, odd indices are real phoneme tokens
+        // with lang_id=2 (English), and even indices are blanks (lang_id=0).
+        if (i % 2 == 1) {
+          lang_padded[i] = 2;
+        }
+      }
+      bert_zeros.assign(bert_dim_ * max_seq_len_, 0.0f);
+      ja_bert_zeros.assign(ja_bert_dim_ * max_seq_len_, 0.0f);
+
+      encoder_model_->SetInputTensorData("tone", tone_padded.data(),
+                                         tone_padded.size());
+      encoder_model_->SetInputTensorData("sid", sid_arr, 1);
+      encoder_model_->SetInputTensorData("language", lang_padded.data(),
+                                         lang_padded.size());
+      encoder_model_->SetInputTensorData("bert", bert_zeros.data(),
+                                         bert_zeros.size());
+      encoder_model_->SetInputTensorData("ja_bert", ja_bert_zeros.data(),
+                                         ja_bert_zeros.size());
+    }
+
     if (!encoder_model_->Run()) {
-      SHERPA_ONNX_LOGE("Failed to run Piper QNN encoder");
+      SHERPA_ONNX_LOGE("Failed to run QNN TTS encoder");
       return {};
     }
 
@@ -380,6 +489,10 @@ class OfflineTtsVitsModelQnn::Impl {
     std::vector<float> m_p = encoder_model_->GetOutputTensorData("m_p");
     std::vector<float> logs_p = encoder_model_->GetOutputTensorData("logs_p");
     std::vector<float> x_mask = encoder_model_->GetOutputTensorData("x_mask");
+    std::vector<float> g;
+    if (is_melo_ && encoder_model_->HasTensor("g")) {
+      g = encoder_model_->GetOutputTensorData("g");
+    }
 
     // 2. Run SDP (Stochastic Duration Predictor)
     float length_scale = config_.vits.length_scale;
@@ -395,8 +508,17 @@ class OfflineTtsVitsModelQnn::Impl {
     sdp_model_->SetInputTensorData("x_mask", x_mask.data(), x_mask.size());
     sdp_model_->SetInputTensorData("length_scale", &length_scale, 1);
     sdp_model_->SetInputTensorData("noise_scale_w", &noise_scale_w, 1);
+    if (is_melo_) {
+      if (sdp_model_->HasTensor("g") && !g.empty()) {
+        sdp_model_->SetInputTensorData("g", g.data(), g.size());
+      }
+      if (sdp_model_->HasTensor("sdp_ratio")) {
+        float sdp_ratio = 0.2f;
+        sdp_model_->SetInputTensorData("sdp_ratio", &sdp_ratio, 1);
+      }
+    }
     if (!sdp_model_->Run()) {
-      SHERPA_ONNX_LOGE("Failed to run Piper QNN sdp");
+      SHERPA_ONNX_LOGE("Failed to run QNN TTS sdp");
       return {};
     }
 
@@ -405,7 +527,7 @@ class OfflineTtsVitsModelQnn::Impl {
     std::vector<float> w_ceil = sdp_model_->GetOutputTensorData("w_ceil");
 
     if (y_lengths_vec.empty() || w_ceil.empty()) {
-      SHERPA_ONNX_LOGE("Empty output from Piper QNN sdp");
+      SHERPA_ONNX_LOGE("Empty output from QNN TTS sdp");
       return {};
     }
 
@@ -452,15 +574,18 @@ class OfflineTtsVitsModelQnn::Impl {
     flow_model_->SetInputTensorData("attn_squeezed", attn_squeezed.data(),
                                     attn_squeezed.size());
     flow_model_->SetInputTensorData("noise_scale", &noise_scale, 1);
+    if (is_melo_ && flow_model_->HasTensor("g") && !g.empty()) {
+      flow_model_->SetInputTensorData("g", g.data(), g.size());
+    }
     if (!flow_model_->Run()) {
-      SHERPA_ONNX_LOGE("Failed to run Piper QNN flow");
+      SHERPA_ONNX_LOGE("Failed to run QNN TTS flow");
       return {};
     }
 
     // z has shape [1, hidden_dim_, upsampled_max_seq_len_]
     std::vector<float> z = flow_model_->GetOutputTensorData("z");
     if (z.empty()) {
-      SHERPA_ONNX_LOGE("Empty output from Piper QNN flow");
+      SHERPA_ONNX_LOGE("Empty output from QNN TTS flow");
       return {};
     }
 
@@ -483,8 +608,11 @@ class OfflineTtsVitsModelQnn::Impl {
     }
 
     decoder_model_->SetInputTensorData("z", z_buf.data(), z_buf.size());
+    if (is_melo_ && decoder_model_->HasTensor("g") && !g.empty()) {
+      decoder_model_->SetInputTensorData("g", g.data(), g.size());
+    }
     if (!decoder_model_->Run()) {
-      SHERPA_ONNX_LOGE("Failed to run Piper QNN decoder on first chunk");
+      SHERPA_ONNX_LOGE("Failed to run QNN TTS decoder on first chunk");
       return {};
     }
     std::vector<float> audio_chunk =
@@ -509,8 +637,11 @@ class OfflineTtsVitsModelQnn::Impl {
       }
 
       decoder_model_->SetInputTensorData("z", z_buf.data(), z_buf.size());
+      if (is_melo_ && decoder_model_->HasTensor("g") && !g.empty()) {
+        decoder_model_->SetInputTensorData("g", g.data(), g.size());
+      }
       if (!decoder_model_->Run()) {
-        SHERPA_ONNX_LOGE("Failed to run Piper QNN decoder on chunk at %d",
+        SHERPA_ONNX_LOGE("Failed to run QNN TTS decoder on chunk at %d",
                          total_dec_seq_len);
         break;
       }
@@ -535,13 +666,16 @@ class OfflineTtsVitsModelQnn::Impl {
   }
 
  private:
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
   OfflineTtsModelConfig config_;
   OfflineTtsVitsModelMetaData meta_data_;
-  Ort::AllocatorWithDefaultOptions allocator_;
+  mutable Ort::AllocatorWithDefaultOptions allocator_;
 
+  bool is_melo_ = false;
   int32_t max_seq_len_ = 512;
   int32_t hidden_dim_ = 192;
+  int32_t bert_dim_ = 1024;
+  int32_t ja_bert_dim_ = 768;
   int32_t upsampled_max_seq_len_ = 1536;
   int32_t dec_seq_len_ = 64;
   int32_t upsample_factor_ = 256;
@@ -575,8 +709,11 @@ Ort::Value OfflineTtsVitsModelQnn::Run(Ort::Value x, int64_t sid /*= 0*/,
 
 Ort::Value OfflineTtsVitsModelQnn::Run(Ort::Value x, Ort::Value tones,
                                        int64_t sid /*= 0*/,
-                                       float speed /*= 1.0*/) const {
-  return impl_->Run(std::move(x), std::move(tones), sid, speed);
+                                       float speed /*= 1.0*/,
+                                       float noise_scale /*= -1.0f*/,
+                                       float noise_scale_w /*= -1.0f*/) const {
+  return impl_->Run(std::move(x), std::move(tones), sid, speed, noise_scale,
+                    noise_scale_w);
 }
 
 const OfflineTtsVitsModelMetaData &OfflineTtsVitsModelQnn::GetMetaData() const {

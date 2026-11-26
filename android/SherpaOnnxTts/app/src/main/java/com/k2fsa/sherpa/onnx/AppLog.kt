@@ -23,22 +23,41 @@ object AppLog {
     private const val TAG = "SherpaOnnxTts"
     private const val LOG_FILE_NAME = "sherpa_app_logs.txt"
     private const val NPU_INIT_MARKER = "npu_init_in_progress.marker"
+    private const val SYNTHESIS_MARKER = "synthesis_in_progress.marker"
     private val memoryLogs = StringBuilder()
     private val listeners = mutableListOf<() -> Unit>()
     private var logFile: File? = null
+    private var crashHandlerInstalled = false
 
     @Synchronized
     fun init(context: Context) {
+        val appCtx = context.applicationContext
         if (logFile == null) {
-            val f = File(context.filesDir, LOG_FILE_NAME)
+            val f = File(appCtx.filesDir, LOG_FILE_NAME)
             logFile = f
             if (f.exists() && f.length() > 0) {
                 runCatching {
                     val prev = f.readText()
                     memoryLogs.append("--- PREVIOUS SESSION LOGS ---\n")
-                    memoryLogs.append(prev.takeLast(12000))
+                    memoryLogs.append(prev.takeLast(14000))
                     memoryLogs.append("--- NEW SESSION START ---\n")
                 }
+            }
+            val synthCrash = didPreviousSynthesisCrash(appCtx)
+            if (synthCrash != null) {
+                e("CRASH NATIF DETECTE LORS DE LA SYNTHESE PRECEDENTE: $synthCrash")
+                writePublicLog(appCtx, "ALERT: Native crash detected during previous synthesis ($synthCrash)")
+            }
+        }
+        if (!crashHandlerInstalled) {
+            crashHandlerInstalled = true
+            val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+            Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+                runCatching {
+                    e("FATAL UNCAUGHT EXCEPTION on thread '${thread.name}': ${throwable.message}", throwable)
+                    writePublicLog(appCtx, "FATAL CRASH on thread '${thread.name}':\n${Log.getStackTraceString(throwable)}")
+                }
+                defaultHandler?.uncaughtException(thread, throwable)
             }
         }
     }
@@ -55,6 +74,31 @@ object AppLog {
             File(context.filesDir, NPU_INIT_MARKER).delete()
             writePublicLog(context, "STATUS: Initialization finished.")
         }
+    }
+
+    fun markSynthesisStart(context: Context, details: String) {
+        runCatching {
+            File(context.filesDir, SYNTHESIS_MARKER).writeText("$details|${System.currentTimeMillis()}")
+        }
+    }
+
+    fun markSynthesisDone(context: Context) {
+        runCatching {
+            File(context.filesDir, SYNTHESIS_MARKER).delete()
+        }
+    }
+
+    fun didPreviousSynthesisCrash(context: Context): String? {
+        return runCatching {
+            val marker = File(context.filesDir, SYNTHESIS_MARKER)
+            if (marker.exists()) {
+                val info = marker.readText()
+                marker.delete()
+                info
+            } else {
+                null
+            }
+        }.getOrNull()
     }
 
     fun writePublicLog(context: Context, extraNote: String = "") {
@@ -165,14 +209,35 @@ object AppLog {
         sb.append("Installed Libs (${libs.size}):\n  ${libs.joinToString("\n  ")}\n\n")
 
         sb.append("=== TTS ENGINE STATE ===\n")
+        sb.append("Active Model Family: ${TtsManager.getActiveModelFamily(context)}\n")
         sb.append("Active Backend: ${TtsManager.getActiveBackend()}\n")
+        sb.append("Forced Mode: ${TtsManager.getForcedBackendMode(context)}\n")
         sb.append("Active Model Dir: ${TtsManager.getActiveModelDir(context)}\n")
+        sb.append("Active Speaker ID (sid): ${TtsManager.getSavedSpeakerId(context)}\n")
+        sb.append("Active Emotion (NeuTTS-2E): ${TtsManager.getSavedEmotion(context)}\n")
         sb.append("Active Locale: ${TtsManager.getActiveLocale(context)}\n")
+        sb.append(String.format(
+            Locale.ROOT,
+            "Acoustic Params: speed=%.2f, noise_scale=%.2f, noise_w=%.2f, silence=%.2f\n",
+            TtsManager.getSavedSpeed(context),
+            TtsManager.getSavedNoiseScale(context),
+            TtsManager.getSavedNoiseW(context),
+            TtsManager.getSavedSilenceScale(context)
+        ))
         val instance = TtsManager.getTts()
         if (instance != null) {
             sb.append("TTS Instance: Initialized (sampleRate=${instance.sampleRate()}, speakers=${instance.numSpeakers()}, lang=${instance.lang()})\n")
         } else {
             sb.append("TTS Instance: Not initialized yet\n")
+        }
+
+        // List staged files in filesDir
+        sb.append("Staged Model Directories in filesDir:\n")
+        context.filesDir.listFiles()?.filter { it.isDirectory }?.sortedBy { it.name }?.forEach { dir ->
+            val filesDesc = dir.listFiles()?.sortedBy { it.name }?.joinToString(", ") { f ->
+                "${f.name} (${f.length() / 1024} KB)"
+            }.orEmpty()
+            sb.append("  [${dir.name}]: $filesDesc\n")
         }
         sb.append("\n")
 
@@ -185,7 +250,7 @@ object AppLog {
         sb.append("=== LOGCAT (NATIVE SHERPA-ONNX & QNN) ===\n")
         try {
             val process = Runtime.getRuntime().exec(
-                arrayOf("logcat", "-d", "-v", "time", "-t", "300", "sherpa-onnx:V", "SherpaOnnxTts:V", "*:E")
+                arrayOf("logcat", "-d", "-v", "time", "-t", "350", "sherpa-onnx:V", "SherpaOnnxTts:V", "TtsService:V", "*:E")
             )
             BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
                 var line: String?

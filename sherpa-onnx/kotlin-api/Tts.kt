@@ -249,12 +249,18 @@ fun getOfflineTtsConfig(
         }
     }
 
+    val isNarrateur = modelDir.contains("narrateur")
+    val defaultNoiseScale = if (isNarrateur) 0.35f else 0.667f
+    val defaultNoiseScaleW = if (isNarrateur) 0.333f else 0.8f
+
     val vits = OfflineTtsVitsModelConfig(
         model = resolvedModelPath,
         lexicon = lexiconPath,
         tokens = "$modelDir/tokens.txt",
         dataDir = dataDir,
         dictDir = dictDir,
+        noiseScale = defaultNoiseScale,
+        noiseScaleW = defaultNoiseScaleW,
         qnnConfig = QnnConfig(
             backendLib = qnnBackendLib,
             systemLib = qnnSystemLib,

@@ -13,113 +13,464 @@
         android:orientation="vertical"
         android:padding="12dp">
 
-        <!-- Header Card: Voice & Backend Mode -->
+        <!-- Top Title & 2-Tab Navigation Bar -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Sherpa-ONNX NPU TTS (Galaxy S25 Ultra)"
+            android:textColor="#102A43"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="#E4E7EB"
+            android:orientation="horizontal"
+            android:padding="3dp">
+
+            <Button
+                android:id="@+id/btn_tab_models"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="3dp"
+                android:layout_weight="1"
+                android:backgroundTint="#0D47A1"
+                android:text="🗂️ 1. Modèle TTS"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btn_tab_voice"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:backgroundTint="#52606D"
+                android:text="🎛️ 2. Voix &amp; Réglages"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- ========================================================= -->
+        <!-- ONGLET 1 : CHOIX DU MODELE (Piper TTS / MeloTTS / NeuTTS) -->
+        <!-- ========================================================= -->
+        <LinearLayout
+            android:id="@+id/layout_tab_models"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:background="#F0F4F8"
             android:orientation="vertical"
-            android:padding="10dp">
+            android:padding="12dp"
+            android:visibility="gone">
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Sherpa-ONNX TTS (Samsung Galaxy S25 Ultra)"
+                android:text="Choisissez l'architecture du modèle TTS (Qualcomm AI Hub / NPU V79) :"
                 android:textColor="#102A43"
-                android:textSize="15sp"
+                android:textSize="13sp"
                 android:textStyle="bold" />
 
-            <!-- Explicit Voice Selector -->
             <RadioGroup
-                android:id="@+id/rg_voices"
+                android:id="@+id/rg_model_family"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
+                android:layout_marginTop="8dp"
                 android:orientation="vertical">
 
                 <RadioButton
-                    android:id="@+id/rb_voice_narrateur"
+                    android:id="@+id/rb_family_piper"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:background="#FFFFFF"
                     android:checked="true"
-                    android:text="🎙️ Français : Narrateur (Modèle personnalisé Drive)"
+                    android:padding="10dp"
+                    android:text="🎙️ Piper TTS (VITS Fast Neural TTS — 22.05 kHz)\n• 4 binaires NPU QNN (encoder, sdp, flow, decoder) + eSpeak-NG\n• Voix : Français Narrateur (NPU/CPU), Français Siwis, English Amy (NPU)"
                     android:textColor="#1B4D3E"
                     android:textSize="12sp"
                     android:textStyle="bold" />
 
                 <RadioButton
-                    android:id="@+id/rb_voice_en"
+                    android:id="@+id/rb_family_melotts"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="⚡ NPU Qualcomm Hexagon V79 : English (Amy)"
+                    android:layout_marginTop="8dp"
+                    android:background="#FFFFFF"
+                    android:padding="10dp"
+                    android:text="🎵 MeloTTS (VITS2 Multi-Accent Studio — 44.1 kHz)\n• Modèle Qualcomm AI Hub Snapdragon 8 Elite (NPU QNN V79 + CPU INT8)\n• 5 Voix/Accents : Américain (US), Britannique (BR), Indien (IN), Australien (AU), Default"
                     android:textColor="#0B69A3"
-                    android:textSize="12sp" />
-
-                <RadioButton
-                    android:id="@+id/rb_voice_fr"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="🇫🇷 CPU ONNX Runtime : Français (Siwis)"
-                    android:textColor="#334E68"
-                    android:textSize="12sp" />
-            </RadioGroup>
-
-            <TextView
-                android:id="@+id/tv_backend_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Backend: En cours d'initialisation..."
-                android:textColor="#243B53"
-                android:textSize="13sp"
-                android:textStyle="italic" />
-
-            <!-- Mode Selector Row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Mode: "
-                    android:textColor="#334E68"
                     android:textSize="12sp"
                     android:textStyle="bold" />
 
-                <Button
-                    android:id="@+id/btn_mode_auto"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="2dp"
-                    android:text="Auto"
-                    android:textAllCaps="false"
-                    android:textSize="11sp" />
+                <RadioButton
+                    android:id="@+id/rb_family_neutts"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="#FFFFFF"
+                    android:padding="10dp"
+                    android:text="🎭 NeuTTS-2E (Neuphonic Émotionnel — 7 Émotions)\n• 4 Locuteurs (Emily, Paul, Sophie, Steven) × 7 Émotions (Neutral, Happy, Sad, Angry, Surprised, Fearful, Disgusted)\n• Exécution NPU QNN V79 / CPU avec modulation prosodique émotionnelle"
+                    android:textColor="#6200EA"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </RadioGroup>
 
-                <Button
-                    android:id="@+id/btn_mode_npu"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="2dp"
-                    android:text="NPU QNN"
-                    android:textAllCaps="false"
-                    android:textSize="11sp" />
+            <TextView
+                android:id="@+id/tv_model_arch_details"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="#E3F2FD"
+                android:padding="8dp"
+                android:text="Architecture sélectionnée : Piper TTS (VITS 4-graphes QNN HTP V79)"
+                android:textColor="#0D47A1"
+                android:textSize="11sp" />
 
-                <Button
-                    android:id="@+id/btn_mode_cpu"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="1"
-                    android:text="CPU ONNX"
-                    android:textAllCaps="false"
-                    android:textSize="11sp" />
-            </LinearLayout>
+            <Button
+                android:id="@+id/btn_go_to_voice_tab"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="10dp"
+                android:backgroundTint="#1B4D3E"
+                android:text="➡️ Configurer la Voix, le NPU/CPU et Synthétiser"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:textStyle="bold" />
         </LinearLayout>
+
+        <!-- ========================================================= -->
+        <!-- ONGLET 2 : VOIX, TYPE CPU/NPU, PARAMETRAGE & SYNTHESE     -->
+        <!-- ========================================================= -->
+        <LinearLayout
+            android:id="@+id/layout_tab_voice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical"
+            android:visibility="visible">
+
+            <!-- Header Card: Active Model Family, Voice & Backend Mode -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#F0F4F8"
+                android:orientation="vertical"
+                android:padding="10dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tv_active_family_banner"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Modèle actif : 🎙️ Piper TTS"
+                        android:textColor="#102A43"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <Button
+                        android:id="@+id/btn_change_model"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:backgroundTint="#0D47A1"
+                        android:text="Changer Modèle"
+                        android:textAllCaps="false"
+                        android:textColor="#FFFFFF"
+                        android:textSize="10sp" />
+                </LinearLayout>
+
+                <!-- Dynamic Voice Selector across all 3 families -->
+                <RadioGroup
+                    android:id="@+id/rg_voices"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:orientation="vertical">
+
+                    <!-- PIPER TTS VOICES -->
+                    <RadioButton
+                        android:id="@+id/rb_voice_narrateur"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="🎙️ Français : Narrateur (Modèle personnalisé Drive — NPU/CPU)"
+                        android:textColor="#1B4D3E"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <RadioButton
+                        android:id="@+id/rb_voice_en"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="⚡ English : Amy (Qualcomm Hexagon V79 NPU)"
+                        android:textColor="#0B69A3"
+                        android:textSize="12sp" />
+
+                    <RadioButton
+                        android:id="@+id/rb_voice_fr"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇫🇷 Français : Siwis (Officiel — CPU ONNX)"
+                        android:textColor="#334E68"
+                        android:textSize="12sp" />
+
+                    <!-- MELOTTS VOICES (44.1 kHz Multi-Accent) -->
+                    <RadioButton
+                        android:id="@+id/rb_melo_us"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇺🇸 MeloTTS EN-US (Accent Américain — sid=0 — 44.1 kHz)"
+                        android:textColor="#0B69A3"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_melo_br"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇬🇧 MeloTTS EN-BR (Accent Britannique — sid=1 — 44.1 kHz)"
+                        android:textColor="#0B69A3"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_melo_in"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇮🇳 MeloTTS EN-INDIA (Accent Indien — sid=2 — 44.1 kHz)"
+                        android:textColor="#0B69A3"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_melo_au"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇦🇺 MeloTTS EN-AU (Accent Australien — sid=3 — 44.1 kHz)"
+                        android:textColor="#0B69A3"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_melo_def"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🌐 MeloTTS EN-Default (Standard — sid=4 — 44.1 kHz)"
+                        android:textColor="#0B69A3"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <!-- NEUTTS-2E VOICES (4 Fixed Speakers) -->
+                    <RadioButton
+                        android:id="@+id/rb_neu_emily"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="👩 NeuTTS-2E : Emily (Voix Féminine Expressive — sid=0)"
+                        android:textColor="#6200EA"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_neu_paul"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="👨 NeuTTS-2E : Paul (Voix Masculine Posée — sid=1)"
+                        android:textColor="#6200EA"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_neu_sophie"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="👱‍♀️ NeuTTS-2E : Sophie (Voix Féminine Douce — sid=2)"
+                        android:textColor="#6200EA"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_neu_steven"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🧔 NeuTTS-2E : Steven (Voix Masculine Dynamique — sid=3)"
+                        android:textColor="#6200EA"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+                </RadioGroup>
+
+                <!-- NeuTTS-2E 7-Emotion Selector (Visible only when NeuTTS-2E is selected) -->
+                <LinearLayout
+                    android:id="@+id/layout_emotions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="#EDE7F6"
+                    android:orientation="vertical"
+                    android:padding="8dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/tv_emotion_status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🎭 Émotion NeuTTS-2E active : Neutral"
+                        android:textColor="#4A148C"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:orientation="horizontal">
+
+                        <Button
+                            android:id="@+id/btn_emo_neutral"
+                            android:layout_width="0dp"
+                            android:layout_height="34dp"
+                            android:layout_marginEnd="2dp"
+                            android:layout_weight="1"
+                            android:text="😐 Neutral"
+                            android:textAllCaps="false"
+                            android:textSize="10sp" />
+
+                        <Button
+                            android:id="@+id/btn_emo_happy"
+                            android:layout_width="0dp"
+                            android:layout_height="34dp"
+                            android:layout_marginEnd="2dp"
+                            android:layout_weight="1"
+                            android:text="😊 Happy"
+                            android:textAllCaps="false"
+                            android:textSize="10sp" />
+
+                        <Button
+                            android:id="@+id/btn_emo_sad"
+                            android:layout_width="0dp"
+                            android:layout_height="34dp"
+                            android:layout_marginEnd="2dp"
+                            android:layout_weight="1"
+                            android:text="😢 Sad"
+                            android:textAllCaps="false"
+                            android:textSize="10sp" />
+
+                        <Button
+                            android:id="@+id/btn_emo_angry"
+                            android:layout_width="0dp"
+                            android:layout_height="34dp"
+                            android:layout_weight="1"
+                            android:text="😠 Angry"
+                            android:textAllCaps="false"
+                            android:textSize="10sp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:orientation="horizontal">
+
+                        <Button
+                            android:id="@+id/btn_emo_surprised"
+                            android:layout_width="0dp"
+                            android:layout_height="34dp"
+                            android:layout_marginEnd="2dp"
+                            android:layout_weight="1"
+                            android:text="😲 Surprised"
+                            android:textAllCaps="false"
+                            android:textSize="10sp" />
+
+                        <Button
+                            android:id="@+id/btn_emo_fearful"
+                            android:layout_width="0dp"
+                            android:layout_height="34dp"
+                            android:layout_marginEnd="2dp"
+                            android:layout_weight="1"
+                            android:text="😨 Fearful"
+                            android:textAllCaps="false"
+                            android:textSize="10sp" />
+
+                        <Button
+                            android:id="@+id/btn_emo_disgusted"
+                            android:layout_width="0dp"
+                            android:layout_height="34dp"
+                            android:layout_weight="1"
+                            android:text="🤢 Disgusted"
+                            android:textAllCaps="false"
+                            android:textSize="10sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tv_backend_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Backend: En cours d'initialisation..."
+                    android:textColor="#243B53"
+                    android:textSize="13sp"
+                    android:textStyle="italic" />
+
+                <!-- Mode Selector Row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Mode: "
+                        android:textColor="#334E68"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <Button
+                        android:id="@+id/btn_mode_auto"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="2dp"
+                        android:layout_weight="1"
+                        android:text="Auto"
+                        android:textAllCaps="false"
+                        android:textSize="11sp" />
+
+                    <Button
+                        android:id="@+id/btn_mode_npu"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="2dp"
+                        android:layout_weight="1"
+                        android:text="NPU QNN"
+                        android:textAllCaps="false"
+                        android:textSize="11sp" />
+
+                    <Button
+                        android:id="@+id/btn_mode_cpu"
+                        android:layout_width="0dp"
+                        android:layout_height="36dp"
+                        android:layout_weight="1"
+                        android:text="CPU ONNX"
+                        android:textAllCaps="false"
+                        android:textSize="11sp" />
+                </LinearLayout>
+            </LinearLayout>
 
         <!-- Acoustic & Rhythm Sliders Card -->
         <LinearLayout
@@ -369,6 +720,7 @@
                 android:layout_marginStart="2dp"
                 android:text="@string/share"
                 android:textAllCaps="false" />
+        </LinearLayout>
         </LinearLayout>
 
         <!-- Diagnostics & Debug Section -->

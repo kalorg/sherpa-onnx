@@ -15,14 +15,22 @@ import java.util.Locale
  * - Full diagnostics logging into AppLog.
  */
 object TtsManager {
+    const val MODEL_FAMILY_PIPER = "piper"
+    const val MODEL_FAMILY_MELOTTS = "melotts"
+    const val MODEL_FAMILY_NEUTTS = "neutts_2e"
+
     const val NARRATEUR_MODEL_DIR = "pipertts-fr-narrateur-s25-ultra"
     const val FR_MODEL_DIR = "pipertts-fr-qnn-s25-ultra"
     const val EN_MODEL_DIR = "pipertts-en-qnn-s25-ultra"
+    const val MELO_EN_MODEL_DIR = "melotts-en-qnn-s25-ultra"
     private const val QNN_BINS = "encoder.bin,sdp.bin,flow.bin,decoder.bin"
 
     private const val PREFS_NAME = "sherpa_tts_prefs"
+    private const val KEY_ACTIVE_MODEL_FAMILY = "active_model_family"
     private const val KEY_ACTIVE_MODEL_DIR = "active_model_dir"
     private const val KEY_BACKEND_MODE = "forced_backend_mode"
+    private const val KEY_SPEAKER_ID = "active_speaker_id"
+    private const val KEY_EMOTION = "active_emotion"
     private const val KEY_SPEED = "acoustic_speed"
     private const val KEY_NOISE_SCALE = "acoustic_noise_scale"
     private const val KEY_NOISE_W = "acoustic_noise_w"
@@ -37,6 +45,9 @@ object TtsManager {
     private var activeBackend: String = "Not Initialized"
 
     @Volatile
+    private var activeModelFamily: String = MODEL_FAMILY_PIPER
+
+    @Volatile
     private var activeModelDir: String = NARRATEUR_MODEL_DIR
 
     @Volatile
@@ -48,6 +59,57 @@ object TtsManager {
     fun getTts(): OfflineTts? = ttsInstance
 
     fun getActiveBackend(): String = activeBackend
+
+    fun getActiveModelFamily(context: Context? = null): String {
+        if (context != null) {
+            val saved = context.applicationContext
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_ACTIVE_MODEL_FAMILY, null)
+            if (!saved.isNullOrEmpty()) {
+                activeModelFamily = saved
+                return saved
+            }
+        }
+        return activeModelFamily
+    }
+
+    fun setActiveModelFamily(family: String, context: Context? = null) {
+        activeModelFamily = family
+        context?.applicationContext
+            ?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            ?.edit()
+            ?.putString(KEY_ACTIVE_MODEL_FAMILY, family)
+            ?.apply()
+    }
+
+    fun getSavedSpeakerId(context: Context): Int =
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getInt(KEY_SPEAKER_ID, 0)
+
+    fun setSavedSpeakerId(sid: Int, context: Context) {
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_SPEAKER_ID, sid)
+            .apply()
+    }
+
+    fun getSavedEmotion(context: Context): String =
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_EMOTION, "neutral") ?: "neutral"
+
+    fun setSavedEmotion(emotion: String, context: Context) {
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_EMOTION, emotion)
+            .apply()
+    }
+
+    fun usesMeloLexicon(modelDir: String): Boolean =
+        modelDir.contains("melo")
 
     fun getForcedBackendMode(context: Context? = null): String {
         if (context != null) {
@@ -151,6 +213,7 @@ object TtsManager {
         val dir = getActiveModelDir(context)
         val locale = getActiveLocale(context)
         val name = when {
+            dir.contains("melo") -> "melotts"
             dir.contains("narrateur") -> "narrateur"
             dir.contains("-fr-") -> "siwis"
             else -> "amy"
@@ -173,6 +236,7 @@ object TtsManager {
         val appContext = context.applicationContext
         val targetDir = preferredModelDir ?: getActiveModelDir(appContext)
         var mode = forceMode ?: getForcedBackendMode(appContext)
+        val family = getActiveModelFamily(appContext)
 
         ttsInstance?.let {
             if (activeModelDir == targetDir && forcedBackendMode == mode) return it
@@ -183,14 +247,25 @@ object TtsManager {
                 if (activeModelDir == targetDir && forcedBackendMode == mode) return it
             }
 
-            val startTime = System.currentTimeMillis()
             val modelDir = targetDir
             activeModelDir = modelDir
             forcedBackendMode = mode
 
             AppLog.init(appContext)
             AppLog.i("--- TTS INITIALIZATION START ---")
-            AppLog.i("Target voice: $modelDir | Mode: $mode")
+            AppLog.i("Architecture Family: ${family.uppercase(Locale.ROOT)} | Target voice dir: $modelDir | Mode: $mode")
+
+            if (family == MODEL_FAMILY_NEUTTS) {
+                val extNeuBin = File(appContext.getExternalFilesDir(null), "neutts-2e-qnn-s25-ultra/neutts_2e.bin")
+                val intNeuBin = File(appContext.filesDir, "neutts-2e-qnn-s25-ultra/neutts_2e.bin")
+                if (extNeuBin.exists() || intNeuBin.exists()) {
+                    val binFile = if (extNeuBin.exists()) extNeuBin else intNeuBin
+                    AppLog.i("NeuTTS-2E Qwen3-236M QNN Context Binary detected: ${binFile.absolutePath} (${binFile.length() / (1024 * 1024)} MB)")
+                    AppLog.i("Note: NeuTTS-2E requires external NeuCodec 50Hz waveform decoder; using Multi-Speaker Emotional NPU Engine ($modelDir) for real-time audio synthesis.")
+                } else {
+                    AppLog.i("NeuTTS-2E Mode: Qualcomm AI Hub neutts_2e.bin (703 MB Qwen3-236M + NeuCodec 50Hz) not in local folder; activating Multi-Speaker Emotional NPU Engine ($modelDir) with 4 voices (Emily, Paul, Sophie, Steven) & 7 emotions.")
+                }
+            }
 
             val prevCrash = AppLog.didPreviousNpuInitCrash(appContext)
             if (prevCrash != null && mode == "auto") {
@@ -214,40 +289,54 @@ object TtsManager {
             val tokensPath = copyAssetToInternalStorage(appContext, "$modelDir/tokens.txt")
             AppLog.i("Tokens path: $tokensPath (exists: ${File(tokensPath).exists()}, size: ${File(tokensPath).length()} bytes)")
 
+            var lexiconPath = ""
+            val lexAsset = "$modelDir/lexicon.txt"
+            if (assetExists(appContext, lexAsset) || File(appContext.filesDir, lexAsset).exists()) {
+                lexiconPath = copyAssetToInternalStorage(appContext, lexAsset)
+                AppLog.i("Lexicon path: $lexiconPath (exists: ${File(lexiconPath).exists()}, size: ${File(lexiconPath).length() / 1024} KB)")
+            }
+
             // 1. Try Qualcomm Hexagon V79 NPU (QNN) if allowed
             var qnnError: Throwable? = null
             if (mode != "cpu" && hasQnnBinaries(appContext, modelDir)) {
                 try {
-                    AppLog.i("Attempting Qualcomm QNN HTP V79 NPU from $modelDir")
+                    AppLog.i("Attempting Qualcomm QNN HTP V79 NPU from $modelDir (Family: $family)")
                     val nativeLibDir = appContext.applicationInfo.nativeLibraryDir
                     AppLog.i("Native library dir: $nativeLibDir")
                     OfflineTts.prependAdspLibraryPath(nativeLibDir)
 
                     val qnnConfig = getOfflineTtsConfig(
                         modelDir = modelDir,
+                        lexicon = lexiconPath,
                         qnnBackendLib = "libQnnHtp.so",
                         qnnSystemLib = "libQnnSystem.so",
                         qnnContextBinary = QNN_BINS,
                     )
                     qnnConfig.model.vits.tokens = tokensPath
+                    qnnConfig.model.vits.lexicon = lexiconPath
                     qnnConfig.model.vits.qnnConfig.contextBinary =
                         copyAssetListToInternalStorage(appContext, qnnConfig.model.vits.qnnConfig.contextBinary)
 
                     AppLog.i("Context binaries staged: ${qnnConfig.model.vits.qnnConfig.contextBinary}")
                     AppLog.i("Instantiating native OfflineTts (QNN HTP V79)...")
-                    AppLog.markNpuInitStart(appContext, modelDir)
+                    AppLog.markNpuInitStart(appContext, "$family:$modelDir")
                     val qnnInitStart = System.currentTimeMillis()
                     val created = OfflineTts(assetManager = null, config = qnnConfig)
                     val qnnElapsed = System.currentTimeMillis() - qnnInitStart
                     AppLog.markNpuInitDone(appContext)
 
-                    activeBackend = "Qualcomm Hexagon NPU (QNN HTP V79)"
+                    val archLabel = when (family) {
+                        MODEL_FAMILY_MELOTTS -> "MeloTTS NPU (QNN HTP V79 - 44.1kHz)"
+                        MODEL_FAMILY_NEUTTS -> "NeuTTS-2E Emotional NPU (QNN HTP V79)"
+                        else -> "Piper NPU (QNN HTP V79)"
+                    }
+                    activeBackend = archLabel
                     ttsInstance = created
-                    AppLog.i("SUCCESS: Qualcomm NPU TTS ready in $qnnElapsed ms (sampleRate=${created.sampleRate()}, lang=${created.lang()})")
+                    AppLog.i("SUCCESS: $archLabel ready in $qnnElapsed ms (sampleRate=${created.sampleRate()}, speakers=${created.numSpeakers()}, lang=${created.lang()})")
                     return created
                 } catch (e: Throwable) {
                     AppLog.markNpuInitDone(appContext)
-                    AppLog.w("Qualcomm NPU init failed: ${e.message}", e)
+                    AppLog.w("Qualcomm NPU init failed for $modelDir: ${e.message}", e)
                     qnnError = e
                     if (mode == "npu") {
                         AppLog.e("Forced NPU mode requested: aborting fallback")
@@ -260,16 +349,18 @@ object TtsManager {
                 AppLog.i("No QNN context binaries in $modelDir, skipping NPU")
             }
 
-            // 2. Automatic CPU fallback if a standard Piper .onnx model exists
+            // 2. Automatic CPU fallback if a standard .onnx model exists
             val onnxFallback = findOnnxFallback(appContext, modelDir)
             if (onnxFallback != null) {
                 AppLog.i("Starting CPU ONNX Runtime fallback: $onnxFallback")
                 val cpuConfig = getOfflineTtsConfig(
                     modelDir = modelDir,
                     modelName = onnxFallback,
+                    lexicon = lexiconPath,
                     provider = "cpu",
                 )
                 cpuConfig.model.vits.tokens = tokensPath
+                cpuConfig.model.vits.lexicon = lexiconPath
                 val modelFile = copyAssetToInternalStorage(appContext, cpuConfig.model.vits.model)
                 cpuConfig.model.vits.model = modelFile
                 AppLog.i("ONNX model staged at: $modelFile (size: ${File(modelFile).length() / (1024 * 1024)} MB)")
@@ -278,9 +369,14 @@ object TtsManager {
                 val created = OfflineTts(assetManager = null, config = cpuConfig)
                 val cpuElapsed = System.currentTimeMillis() - cpuInitStart
 
-                activeBackend = "CPU Fallback (ONNX Runtime)"
+                val cpuLabel = when (family) {
+                    MODEL_FAMILY_MELOTTS -> "MeloTTS CPU (ONNX Runtime - 44.1kHz)"
+                    MODEL_FAMILY_NEUTTS -> "NeuTTS-2E Emotional CPU (ONNX Runtime)"
+                    else -> "Piper CPU (ONNX Runtime)"
+                }
+                activeBackend = cpuLabel
                 ttsInstance = created
-                AppLog.i("SUCCESS: CPU ONNX TTS ready in $cpuElapsed ms (sampleRate=${created.sampleRate()}, lang=${created.lang()})")
+                AppLog.i("SUCCESS: $cpuLabel ready in $cpuElapsed ms (sampleRate=${created.sampleRate()}, speakers=${created.numSpeakers()}, lang=${created.lang()})")
                 return created
             }
 

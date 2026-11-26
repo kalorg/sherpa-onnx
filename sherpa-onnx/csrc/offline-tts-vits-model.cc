@@ -61,7 +61,9 @@ class OfflineTtsVitsModel::Impl {
     return RunVits(std::move(x), sid, speed, emotion_id);
   }
 
-  Ort::Value Run(Ort::Value x, Ort::Value tones, int64_t sid, float speed) {
+  Ort::Value Run(Ort::Value x, Ort::Value tones, int64_t sid, float speed,
+                 float noise_scale_override = -1.0f,
+                 float noise_scale_w_override = -1.0f) {
     if (meta_data_.num_speakers == 1) {
       // For MeloTTS, we hardcode sid to the one contained in the meta data
       sid = meta_data_.speaker_id;
@@ -84,9 +86,13 @@ class OfflineTtsVitsModel::Impl {
         Ort::Value::CreateTensor(memory_info, &len, 1, &len_shape, 1);
 
     int64_t scale_shape = 1;
-    float noise_scale = config_.vits.noise_scale;
+    float noise_scale = (noise_scale_override >= 0.0f)
+                            ? noise_scale_override
+                            : config_.vits.noise_scale;
     float length_scale = config_.vits.length_scale;
-    float noise_scale_w = config_.vits.noise_scale_w;
+    float noise_scale_w = (noise_scale_w_override >= 0.0f)
+                              ? noise_scale_w_override
+                              : config_.vits.noise_scale_w;
 
     if (speed != 1 && speed > 0) {
       length_scale = 1. / speed;
@@ -450,8 +456,11 @@ Ort::Value OfflineTtsVitsModel::Run(Ort::Value x, int64_t sid /*=0*/,
 
 Ort::Value OfflineTtsVitsModel::Run(Ort::Value x, Ort::Value tones,
                                     int64_t sid /*= 0*/,
-                                    float speed /*= 1.0*/) const {
-  return impl_->Run(std::move(x), std::move(tones), sid, speed);
+                                    float speed /*= 1.0*/,
+                                    float noise_scale /*= -1.0f*/,
+                                    float noise_scale_w /*= -1.0f*/) const {
+  return impl_->Run(std::move(x), std::move(tones), sid, speed, noise_scale,
+                    noise_scale_w);
 }
 
 const OfflineTtsVitsModelMetaData &OfflineTtsVitsModel::GetMetaData() const {

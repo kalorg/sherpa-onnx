@@ -203,9 +203,12 @@ class TtsService : TextToSpeechService() {
             return
         }
 
+        val savedSid = TtsManager.getSavedSpeakerId(applicationContext)
+        val useMelo = TtsManager.usesMeloLexicon(targetDir)
+
         try {
             val genConfig = GenerationConfig(
-                sid = 0,
+                sid = savedSid,
                 speed = finalSpeed,
                 silenceScale = silenceScale,
                 extra = mapOf(
@@ -213,10 +216,15 @@ class TtsService : TextToSpeechService() {
                     "noise_scale_w" to String.format(Locale.ROOT, "%.3f", noiseW)
                 )
             )
-            genConfig.phonemeCodepoints = TtsManager.phonemize(tts, text)
+            val inputText = if (useMelo) {
+                text
+            } else {
+                genConfig.phonemeCodepoints = TtsManager.phonemize(tts, text)
+                ""
+            }
 
             tts.generateWithConfigAndCallback(
-                text = "",
+                text = inputText,
                 config = genConfig,
                 callback = { floatSamples ->
                     if (stopRequested) {

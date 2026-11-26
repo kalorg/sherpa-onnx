@@ -38,7 +38,8 @@ class OfflineTtsVitsModelQnn {
 
   // Overload for MeloTTS signature compatibility
   Ort::Value Run(Ort::Value x, Ort::Value tones, int64_t sid = 0,
-                 float speed = 1.0) const;
+                 float speed = 1.0, float noise_scale = -1.0f,
+                 float noise_scale_w = -1.0f) const;
 
   const OfflineTtsVitsModelMetaData &GetMetaData() const;
 
