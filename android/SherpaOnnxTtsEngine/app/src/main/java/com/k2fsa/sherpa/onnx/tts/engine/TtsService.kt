@@ -170,10 +170,14 @@ class TtsService : TextToSpeechService() {
             if (stopRequested) return 0
             val samples = floatArrayToByteArray(floatSamples)
             val maxBufferSize: Int = callback.maxBufferSize
+            if (maxBufferSize <= 0) return 0
             var offset = 0
             while (offset < samples.size && !stopRequested) {
                 val bytesToWrite = min(maxBufferSize, samples.size - offset)
-                callback.audioAvailable(samples, offset, bytesToWrite)
+                if (callback.audioAvailable(samples, offset, bytesToWrite) != TextToSpeech.SUCCESS) {
+                    stopRequested = true
+                    break
+                }
                 offset += bytesToWrite
             }
             return if (stopRequested) 0 else 1
@@ -203,7 +207,8 @@ class TtsService : TextToSpeechService() {
     private fun floatArrayToByteArray(audio: FloatArray): ByteArray {
         val byteArray = ByteArray(audio.size * 2)
         for (i in audio.indices) {
-            val clamped = audio[i].coerceIn(-1.0f, 1.0f)
+            val v = audio[i]
+            val clamped = if (v.isFinite()) v.coerceIn(-1.0f, 1.0f) else 0.0f
             val sample = (clamped * 32767).toInt()
             byteArray[2 * i] = sample.toByte()
             byteArray[2 * i + 1] = (sample shr 8).toByte()

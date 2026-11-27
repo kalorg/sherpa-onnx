@@ -119,6 +119,66 @@
                     android:textColor="#6200EA"
                     android:textSize="12sp"
                     android:textStyle="bold" />
+
+                <RadioButton
+                    android:id="@+id/rb_family_reverb"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="#FFFFFF"
+                    android:padding="10dp"
+                    android:text="🔊 Reverb-TTS (Zero-Shot Voice Cloning — Qualcomm NPU — 24 kHz)\n• Modèle Software Mansion 297M masked-diffusion (OmniVoice distillé sur Qwen3)\n• Choix de précision NPU : 4-bit (INT4 NPU — 191 Mo) ou 8-bit (INT8 NPU — 307 Mo)\n• Voix de référence incluses (Français Femme/Homme, English Narrator/Whisper/Angry, Espagnol...)"
+                    android:textColor="#B71C1C"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <RadioButton
+                    android:id="@+id/rb_family_litert_pocket"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="#FFFFFF"
+                    android:padding="10dp"
+                    android:text="🇫🇷/🇺🇸 LiteRT : PocketTTS 100M (Kyutai FlowLM — 24 kHz)\n• Voix Française Estelle (122 Mo) &amp; 8 Voix Anglaises Alba, Marius, Javert... (156 Mo)\n• Exécution MediaPipe Tasks Audio sur CPU XNNPACK"
+                    android:textColor="#E65100"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <RadioButton
+                    android:id="@+id/rb_family_litert_kokoro"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="#FFFFFF"
+                    android:padding="10dp"
+                    android:text="🌐 LiteRT : Kokoro-82M (StyleTTS2 Multilingue — 24 kHz)\n• 54 voix dont Français Siwis et Anglais Heart, Bella, Adam, Emma\n• Vocodeur accéléré sur GPU ML Drift (Adreno OpenCL) / CPU XNNPACK (295 Mo)"
+                    android:textColor="#1565C0"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <RadioButton
+                    android:id="@+id/rb_family_litert_matcha"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="#FFFFFF"
+                    android:padding="10dp"
+                    android:text="⚡ LiteRT : Matcha-TTS (CFM + HiFi-GAN — 22.05 kHz)\n• 3 graphes .tflite via LiteRT CompiledModel API (GPU Adreno ML Drift + CPU XNNPACK)\n• Pipeline FFT-free sans iSTFT avec phonémisation eSpeak-NG"
+                    android:textColor="#2E7D32"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <RadioButton
+                    android:id="@+id/rb_family_litert_phonon"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="#FFFFFF"
+                    android:padding="10dp"
+                    android:text="🚀 LiteRT : Phonon-31M (Gradium FlowLM — 24 kHz)\n• Bundle ultra-léger de seulement 84 Mo, 5 voix anglaises (Freya, Claire, Lukas, Sofia, Lucas)\n• Décodage neural rapide sur CPU XNNPACK"
+                    android:textColor="#4527A0"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
             </RadioGroup>
 
             <TextView
@@ -191,7 +251,88 @@
                         android:textSize="10sp" />
                 </LinearLayout>
 
-                <!-- Dynamic Voice Selector across all 3 families -->
+                <!-- Reverb-TTS Quantization Selector (4-bit vs 8-bit NPU) -->
+                <LinearLayout
+                    android:id="@+id/layout_reverb_quantization"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="#FFEBEE"
+                    android:orientation="vertical"
+                    android:padding="8dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="⚡ Précision Reverb-TTS (Qualcomm Hexagon NPU) :"
+                        android:textColor="#B71C1C"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <RadioGroup
+                        android:id="@+id/rg_reverb_quantization"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:orientation="vertical">
+
+                        <RadioButton
+                            android:id="@+id/rb_reverb_4bit"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:text="⚡ Version 4-bit (INT4 NPU — 191 Mo)\n• Qualcomm Hexagon HTP V79/V81 QNN PTE\n• Vitesse maximale et consommation mémoire ultra-faible"
+                            android:textColor="#B71C1C"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+
+                        <RadioButton
+                            android:id="@+id/rb_reverb_8bit"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="🎯 Version 8-bit (INT8 NPU / W8A8 — 307 Mo)\n• Poids quantifiés INT8 (W8A8/W8A16) sans aucune perte de qualité\n• Fidélité acoustique studio maximale"
+                            android:textColor="#880E4F"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </RadioGroup>
+                </LinearLayout>
+
+                <!-- Model Download / Status Card (For Reverb-TTS & LiteRT Hugging Face models) -->
+                <LinearLayout
+                    android:id="@+id/layout_model_download"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="#E8F5E9"
+                    android:orientation="vertical"
+                    android:padding="8dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/tv_download_status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Statut du modèle : Prêt"
+                        android:textColor="#1B5E20"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <Button
+                        android:id="@+id/btn_download_model"
+                        android:layout_width="match_parent"
+                        android:layout_height="36dp"
+                        android:layout_marginTop="4dp"
+                        android:backgroundTint="#2E7D32"
+                        android:text="⬇️ Télécharger le modèle depuis Hugging Face"
+                        android:textAllCaps="false"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Dynamic Voice Selector across all families -->
                 <RadioGroup
                     android:id="@+id/rg_voices"
                     android:layout_width="match_parent"
@@ -308,6 +449,193 @@
                         android:layout_height="wrap_content"
                         android:text="🧔 NeuTTS-2E : Steven (Voix Masculine Dynamique — sid=3)"
                         android:textColor="#6200EA"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <!-- REVERB-TTS VOICES (Zero-Shot 24 kHz) -->
+                    <RadioButton
+                        android:id="@+id/rb_reverb_fr_female"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇫🇷 Reverb : Français Femme (Standard)"
+                        android:textColor="#B71C1C"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_reverb_fr_male"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇫🇷 Reverb : Français Homme (Standard)"
+                        android:textColor="#B71C1C"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_reverb_en_narrator"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇺🇸 Reverb : English Femme (Narratrice)"
+                        android:textColor="#B71C1C"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_reverb_en_whisper"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇺🇸 Reverb : English Femme (Chuchotement)"
+                        android:textColor="#B71C1C"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_reverb_en_angry"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇺🇸 Reverb : English Homme (Expressif / Énergique)"
+                        android:textColor="#B71C1C"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_reverb_en_male1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇺🇸 Reverb : English Homme (Narrateur 1)"
+                        android:textColor="#B71C1C"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_reverb_en_male2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇺🇸 Reverb : English Homme (Narrateur 2)"
+                        android:textColor="#B71C1C"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_reverb_es_male"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇪🇸 Reverb : Espagnol Homme"
+                        android:textColor="#B71C1C"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_reverb_de_female"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇩🇪 Reverb : Allemand Femme"
+                        android:textColor="#B71C1C"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_reverb_it_male"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇮🇹 Reverb : Italien Homme"
+                        android:textColor="#B71C1C"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <!-- LITERT VOICES -->
+                    <RadioButton
+                        android:id="@+id/rb_litert_pocket_estelle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇫🇷 LiteRT Pocket : Estelle (Français — 24 kHz)"
+                        android:textColor="#E65100"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_litert_pocket_alba"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇺🇸 LiteRT Pocket : Alba (English — 24 kHz)"
+                        android:textColor="#E65100"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_litert_pocket_marius"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇺🇸 LiteRT Pocket : Marius (English — 24 kHz)"
+                        android:textColor="#E65100"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_litert_kokoro_siwis"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇫🇷 LiteRT Kokoro : Siwis (Français — 24 kHz)"
+                        android:textColor="#1565C0"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_litert_kokoro_heart"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇺🇸 LiteRT Kokoro : Heart (English US — 24 kHz)"
+                        android:textColor="#1565C0"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_litert_kokoro_bella"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇺🇸 LiteRT Kokoro : Bella (English US — 24 kHz)"
+                        android:textColor="#1565C0"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_litert_kokoro_emma"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🇬🇧 LiteRT Kokoro : Emma (English UK — 24 kHz)"
+                        android:textColor="#1565C0"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_litert_matcha_lj"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="⚡ LiteRT Matcha : LJSpeech (English — 22.05 kHz)"
+                        android:textColor="#2E7D32"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_litert_phonon_freya"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🚀 LiteRT Phonon : Freya (English — 24 kHz)"
+                        android:textColor="#4527A0"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+
+                    <RadioButton
+                        android:id="@+id/rb_litert_phonon_claire"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🚀 LiteRT Phonon : Claire (English — 24 kHz)"
+                        android:textColor="#4527A0"
                         android:textSize="12sp"
                         android:visibility="gone" />
                 </RadioGroup>

@@ -1,7 +1,10 @@
 package com.k2fsa.sherpa.onnx.tts.engine
 
+import PreferenceHelper
 import android.content.Context
 import android.util.Log
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import com.github.csukuangfj.piper.phonemize.piperPhonemizeInitialize
 import com.github.csukuangfj.piper.phonemize.piperPhonemizeText
 import com.k2fsa.sherpa.onnx.OfflineTts
@@ -26,8 +29,20 @@ object TtsEngine {
     @Volatile
     var tts: OfflineTts? = null
 
-    var speed: Float = 1.0F
-    var speakerId: Int = 0
+    val speedState = mutableFloatStateOf(1.0F)
+    var speed: Float
+        get() = speedState.floatValue
+        set(value) {
+            speedState.floatValue = value
+        }
+
+    val speakerIdState = mutableIntStateOf(0)
+    var speakerId: Int
+        get() = speakerIdState.intValue
+        set(value) {
+            speakerIdState.intValue = value
+        }
+
     var modelDir: String = EN_MODEL_DIR
     var modelName: String? = null
     var qnnBackendLib: String = "libQnnHtp.so"
@@ -42,7 +57,7 @@ object TtsEngine {
     private var phonemizerReady: Boolean = false
 
     fun getActiveLocale(context: Context? = null): Locale {
-        val modelLang = tts?.lang()?.lowercase(Locale.ROOT).orEmpty()
+        val modelLang = runCatching { tts?.lang()?.lowercase(Locale.ROOT) }.getOrNull().orEmpty()
         if (modelLang.startsWith("fr") || lang == "fra" || lang == "fr" || modelDir.contains("-fr-")) {
             return Locale.FRANCE
         }
@@ -170,16 +185,30 @@ object TtsEngine {
             return outFile.absolutePath
         }
         if (outFile.exists()) {
-            val assetSize = context.assets.open(path).use { it.available() }
-            if (outFile.length() == assetSize.toLong()) {
+            val assetSize = runCatching {
+                context.assets.openFd(path).use { it.length }
+            }.getOrElse {
+                runCatching { context.assets.open(path).use { it.available().toLong() } }.getOrDefault(-1L)
+            }
+            if (assetSize > 0L && outFile.length() == assetSize) {
                 return outFile.absolutePath
             }
         }
         outFile.parentFile?.mkdirs()
-        context.assets.open(path).use { input ->
-            outFile.outputStream().use { output ->
-                input.copyTo(output)
+        val tmpFile = File(outFile.parentFile, "${outFile.name}.tmp")
+        try {
+            context.assets.open(path).use { input ->
+                tmpFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
             }
+            if (!tmpFile.renameTo(outFile)) {
+                tmpFile.copyTo(outFile, overwrite = true)
+                tmpFile.delete()
+            }
+        } catch (t: Throwable) {
+            tmpFile.delete()
+            throw t
         }
         return outFile.absolutePath
     }

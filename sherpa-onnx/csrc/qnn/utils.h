@@ -27,13 +27,27 @@ std::vector<T> ReadFile(const std::string &filename) {
     return {};
   }
 
-  fseek(fp, 0, SEEK_END);
-  int32_t n = ftell(fp);
-  fseek(fp, 0, SEEK_SET);
+  if (fseek(fp, 0, SEEK_END) != 0) {
+    fclose(fp);
+    return {};
+  }
+  long n = ftell(fp);
+  if (n <= 0) {
+    fclose(fp);
+    return {};
+  }
+  if (fseek(fp, 0, SEEK_SET) != 0) {
+    fclose(fp);
+    return {};
+  }
 
-  std::vector<T> ans(n / sizeof(T));
-  fread(ans.data(), sizeof(T), ans.size(), fp);
+  size_t count = static_cast<size_t>(n) / sizeof(T);
+  std::vector<T> ans(count);
+  size_t read_count = fread(ans.data(), sizeof(T), ans.size(), fp);
   fclose(fp);
+  if (read_count != count) {
+    ans.resize(read_count);
+  }
 
   return ans;
 }
@@ -65,8 +79,9 @@ void GetDataNonQuant(const Qnn_Tensor_t *t, float *data, int32_t n);
 void GetDataFloat16(const Qnn_Tensor_t *t, float *data, int32_t n);
 
 void FreeTensor(Qnn_Tensor_t *t);
+void DeleteTensor(Qnn_Tensor_t *t);
 
-using TensorPtr = std::unique_ptr<Qnn_Tensor_t, decltype(&FreeTensor)>;
+using TensorPtr = std::unique_ptr<Qnn_Tensor_t, decltype(&DeleteTensor)>;
 
 void CopyTensorInfo(const Qnn_Tensor_t &src, Qnn_Tensor_t &dst);  // NOLINT
 

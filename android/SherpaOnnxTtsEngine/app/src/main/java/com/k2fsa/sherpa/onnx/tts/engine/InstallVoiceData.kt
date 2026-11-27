@@ -8,5 +8,6 @@ class InstallVoiceData : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         super.onCreate(savedInstanceState)
+        finish()
     }
 }

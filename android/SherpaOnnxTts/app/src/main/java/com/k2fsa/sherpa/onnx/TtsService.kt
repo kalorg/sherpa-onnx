@@ -162,6 +162,8 @@ class TtsService : TextToSpeechService() {
 
     override fun onStop() {
         stopRequested = true
+        ReverbTtsEngine.stop()
+        LiteRtTtsEngine.stop()
     }
 
     override fun onSynthesizeText(request: SynthesisRequest?, callback: SynthesisCallback?) {
@@ -176,6 +178,102 @@ class TtsService : TextToSpeechService() {
             return
         }
 
+        val family = TtsManager.getActiveModelFamily(applicationContext)
+        val rate = runCatching { request.speechRate }.getOrDefault(100)
+        val reqSpeedMultiplier = if (rate > 0) (rate / 100.0f).coerceIn(0.25f, 3.0f) else 1.0f
+        val userSpeed = TtsManager.getSavedSpeed(applicationContext)
+        val finalSpeed = (userSpeed * reqSpeedMultiplier).coerceIn(0.25f, 3.0f)
+
+        if (family == TtsManager.MODEL_FAMILY_REVERB) {
+            val quant = ReverbTtsEngine.getSavedPrecision(applicationContext)
+            val voiceId = ReverbTtsEngine.getSavedVoice(applicationContext)
+            val forceMode = TtsManager.getForcedBackendMode(applicationContext)
+            callback.start(24000, AudioFormat.ENCODING_PCM_16BIT, 1)
+            if (text.isEmpty()) {
+                callback.done()
+                return
+            }
+            try {
+                ReverbTtsEngine.synthesize(
+                    context = applicationContext,
+                    quant = quant,
+                    voiceId = voiceId,
+                    mode = forceMode,
+                    text = text,
+                    speed = finalSpeed
+                ) { floatSamples ->
+                    if (stopRequested) return@synthesize 0
+                    val pcm16 = floatToPcm16(floatSamples)
+                    val maxBuf = callback.maxBufferSize
+                    if (maxBuf <= 0) return@synthesize 0
+                    var offset = 0
+                    while (offset < pcm16.size && !stopRequested) {
+                        val toWrite = min(maxBuf, pcm16.size - offset)
+                        if (callback.audioAvailable(pcm16, offset, toWrite) != TextToSpeech.SUCCESS) {
+                            stopRequested = true
+                            break
+                        }
+                        offset += toWrite
+                    }
+                    if (stopRequested) 0 else 1
+                }
+                if (!stopRequested) {
+                    callback.done()
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Reverb-TTS synthesis error", t)
+                callback.error()
+            }
+            return
+        }
+
+        if (LiteRtTtsEngine.isLiteRtFamily(family)) {
+            val voiceId = LiteRtTtsEngine.getSavedVoice(applicationContext, family)
+            val forceMode = TtsManager.getForcedBackendMode(applicationContext)
+            val sr = LiteRtTtsEngine.getSampleRate()
+            callback.start(sr, AudioFormat.ENCODING_PCM_16BIT, 1)
+            if (text.isEmpty()) {
+                callback.done()
+                return
+            }
+            val noiseScale = TtsManager.getSavedNoiseScale(applicationContext, 0.67f)
+            val silenceScale = TtsManager.getSavedSilenceScale(applicationContext, 0.20f)
+            try {
+                LiteRtTtsEngine.synthesize(
+                    context = applicationContext,
+                    family = family,
+                    voiceId = voiceId,
+                    mode = forceMode,
+                    text = text,
+                    speed = finalSpeed,
+                    noiseScale = noiseScale,
+                    silenceScale = silenceScale
+                ) { floatSamples ->
+                    if (stopRequested) return@synthesize 0
+                    val pcm16 = floatToPcm16(floatSamples)
+                    val maxBuf = callback.maxBufferSize
+                    if (maxBuf <= 0) return@synthesize 0
+                    var offset = 0
+                    while (offset < pcm16.size && !stopRequested) {
+                        val toWrite = min(maxBuf, pcm16.size - offset)
+                        if (callback.audioAvailable(pcm16, offset, toWrite) != TextToSpeech.SUCCESS) {
+                            stopRequested = true
+                            break
+                        }
+                        offset += toWrite
+                    }
+                    if (stopRequested) 0 else 1
+                }
+                if (!stopRequested) {
+                    callback.done()
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "LiteRT synthesis error", t)
+                callback.error()
+            }
+            return
+        }
+
         val targetDir = TtsManager.getActiveModelDir(applicationContext)
         val forceMode = TtsManager.getForcedBackendMode(applicationContext)
         val tts = try {
@@ -185,11 +283,6 @@ class TtsService : TextToSpeechService() {
             callback.error()
             return
         }
-
-        val rate = runCatching { request.speechRate }.getOrDefault(100)
-        val reqSpeedMultiplier = if (rate > 0) (rate / 100.0f).coerceIn(0.25f, 3.0f) else 1.0f
-        val userSpeed = TtsManager.getSavedSpeed(applicationContext)
-        val finalSpeed = (userSpeed * reqSpeedMultiplier).coerceIn(0.25f, 3.0f)
 
         val defaultNoise = if (targetDir.contains("narrateur")) 0.35f else 0.67f
         val defaultNoiseW = if (targetDir.contains("narrateur")) 0.33f else 0.80f
@@ -232,10 +325,16 @@ class TtsService : TextToSpeechService() {
                     } else {
                         val pcm16 = floatToPcm16(floatSamples)
                         val maxBuf = callback.maxBufferSize
+                        if (maxBuf <= 0) {
+                            return@generateWithConfigAndCallback 0
+                        }
                         var offset = 0
                         while (offset < pcm16.size && !stopRequested) {
                             val toWrite = min(maxBuf, pcm16.size - offset)
-                            callback.audioAvailable(pcm16, offset, toWrite)
+                            if (callback.audioAvailable(pcm16, offset, toWrite) != TextToSpeech.SUCCESS) {
+                                stopRequested = true
+                                break
+                            }
                             offset += toWrite
                         }
                         if (stopRequested) 0 else 1
@@ -254,7 +353,8 @@ class TtsService : TextToSpeechService() {
     private fun floatToPcm16(samples: FloatArray): ByteArray {
         val out = ByteArray(samples.size * 2)
         for (i in samples.indices) {
-            val clamped = samples[i].coerceIn(-1.0f, 1.0f)
+            val sample = samples[i]
+            val clamped = if (sample.isFinite()) sample.coerceIn(-1.0f, 1.0f) else 0.0f
             val s = (clamped * 32767.0f).toInt()
             out[2 * i] = (s and 0xFF).toByte()
             out[2 * i + 1] = ((s shr 8) and 0xFF).toByte()

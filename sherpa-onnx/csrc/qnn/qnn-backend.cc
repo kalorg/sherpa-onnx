@@ -33,20 +33,28 @@ class QnnBackend::Impl {
       return;
     }
 
-    InitLog();
-    InitBackend();
-    InitDevice();
+    try {
+      InitLog();
+      InitBackend();
+      InitDevice();
 
-    if (opts_.htp_perf_mode) {
-      InitHtpPerfMode();
+      if (opts_.htp_perf_mode) {
+        InitHtpPerfMode();
+      }
+    } catch (...) {
+      Cleanup();
+      throw;
     }
 
     is_initialized_ = true;
   }
 
-  ~Impl() {
+  ~Impl() { Cleanup(); }
+
+ private:
+  void Cleanup() {
     for (auto it = context_handles_.rbegin(); it != context_handles_.rend(); ++it) {
-      if (*it) {
+      if (*it && qnn_interface_.contextFree) {
         auto ret = qnn_interface_.contextFree(*it, nullptr);
         if (ret != QNN_SUCCESS) {
           SHERPA_ONNX_LOGE("Failed to call contextFree: %d", static_cast<int>(ret));
@@ -62,29 +70,36 @@ class QnnBackend::Impl {
         SHERPA_ONNX_LOGE("destroyPowerConfigId failed: %d",
                          static_cast<int>(ret));
       }
+      htp_power_config_id_ = 0;
+      htp_perf_infra_ = nullptr;
     }
 
-    if (device_handle_) {
+    if (device_handle_ && qnn_interface_.deviceFree) {
       auto ret = qnn_interface_.deviceFree(device_handle_);
       if (ret != QNN_SUCCESS) {
         SHERPA_ONNX_LOGE("Failed to call deviceFree: %d", static_cast<int>(ret));
       }
+      device_handle_ = nullptr;
     }
 
-    if (backend_handle_) {
+    if (backend_handle_ && qnn_interface_.backendFree) {
       auto ret = qnn_interface_.backendFree(backend_handle_);
       if (ret != QNN_SUCCESS) {
         SHERPA_ONNX_LOGE("Failed to call backendFree: %d", static_cast<int>(ret));
       }
+      backend_handle_ = nullptr;
     }
 
-    if (log_handle_) {
+    if (log_handle_ && qnn_interface_.logFree) {
       auto ret = qnn_interface_.logFree(log_handle_);
       if (ret != QNN_SUCCESS) {
         SHERPA_ONNX_LOGE("Failed to call logFree: %d", static_cast<int>(ret));
       }
+      log_handle_ = nullptr;
     }
   }
+
+ public:
 
   void InitContext() {
     if (context_handle_) {
@@ -403,7 +418,7 @@ class QnnBackend::Impl {
   std::unique_ptr<void, decltype(&dlclose)> backend_lib_handle_{nullptr,
                                                                 &dlclose};
 
-  QNN_INTERFACE_VER_TYPE qnn_interface_;
+  QNN_INTERFACE_VER_TYPE qnn_interface_{};
 
   QnnLog_Level_t log_level_ = QNN_LOG_LEVEL_WARN;
   // QnnLog_Level_t log_level_ = QNN_LOG_LEVEL_INFO;

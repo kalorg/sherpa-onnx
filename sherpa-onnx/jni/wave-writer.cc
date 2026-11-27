@@ -9,10 +9,21 @@ SHERPA_ONNX_EXTERN_C
 JNIEXPORT bool JNICALL Java_com_k2fsa_sherpa_onnx_WaveWriter_writeWaveToFile(
     JNIEnv *env, jclass /*obj*/, jstring filename, jfloatArray samples,
     jint sample_rate) {
+  if (!filename || !samples) {
+    return false;
+  }
+
   jfloat *p = env->GetFloatArrayElements(samples, nullptr);
+  if (!p) {
+    return false;
+  }
   jsize n = env->GetArrayLength(samples);
 
   const char *p_filename = env->GetStringUTFChars(filename, nullptr);
+  if (!p_filename) {
+    env->ReleaseFloatArrayElements(samples, p, JNI_ABORT);
+    return false;
+  }
 
   bool ok = sherpa_onnx::WriteWave(p_filename, sample_rate, p, n);
 

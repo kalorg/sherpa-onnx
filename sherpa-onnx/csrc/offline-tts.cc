@@ -57,6 +57,10 @@ GeneratedAudio GeneratedAudio::ScaleSilence(float scale) const {
                      scale, kMinSilenceScale, kMaxSilenceScale);
     return *this;
   }
+  if (samples.empty() || sample_rate <= 0) {
+    return *this;
+  }
+
   // if the interval is larger than 0.2 second, then we assume it is a pause
   int32_t threshold = static_cast<int32_t>(sample_rate * 0.2);
 

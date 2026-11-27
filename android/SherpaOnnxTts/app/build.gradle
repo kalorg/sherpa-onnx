@@ -9,10 +9,10 @@ android {
 
     defaultConfig {
         applicationId "com.k2fsa.sherpa.onnx"
-        minSdk 24
+        minSdk 26
         targetSdk 36
-        versionCode 20261125
-        versionName "2.0.4"
+        versionCode 20261126
+        versionName "2.1.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -30,13 +30,16 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
     packagingOptions {
         jniLibs {
             useLegacyPackaging = true
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 
@@ -47,6 +50,13 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     // piper-phonemize provides the text frontend for models without a lexicon
     implementation 'com.github.csukuangfj.piper-phonemize:piper-phonemize:v1.6.1'
+    // Google AI Edge LiteRT: CompiledModel API (CPU XNNPACK / GPU ML Drift) for Matcha-TTS .tflite graphs
+    implementation 'com.google.ai.edge.litert:litert:2.4.1'
+    implementation 'com.google.ai.edge.litert:litert-gpu:2.4.1'
+    // MediaPipe TextToSpeech task: runs .litertlm bundles (PocketTTS, Kokoro-82M, Phonon-31M)
+    implementation 'com.google.mediapipe:tasks-audio:1.2.3'
+    // ExecuTorch for on-device PyTorch / QNN PTE programs (Reverb-TTS)
+    implementation 'org.pytorch:executorch-android:0.6.0'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'

@@ -5,6 +5,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <cmath>
 #include <cstring>
 
 #include <algorithm>
@@ -113,16 +114,22 @@ void FillData(Qnn_Tensor_t *t, const float *data, int32_t n) {
 
   uint16_t *out = reinterpret_cast<uint16_t *>(t->v1.clientBuf.data);
 
-  for (size_t i = 0; i < n; ++i) {
-    int32_t quantized_value =
-        round(true_bit_width_max * (data[i] - encoding_min) / encoding_range);
+  if (encoding_range <= 0.0 || !std::isfinite(encoding_range)) {
+    std::fill(out, out + n, static_cast<uint16_t>(0));
+    return;
+  }
 
-    if (quantized_value < 0) {
-      quantized_value = 0;
-    } else if (quantized_value > static_cast<int32_t>(true_bit_width_max)) {
-      quantized_value = static_cast<int32_t>(true_bit_width_max);
+  for (int32_t i = 0; i < n; ++i) {
+    double val = std::isfinite(data[i])
+                     ? std::round(true_bit_width_max * (data[i] - encoding_min) /
+                                  encoding_range)
+                     : 0.0;
+    if (val < 0.0) {
+      val = 0.0;
+    } else if (val > true_bit_width_max) {
+      val = true_bit_width_max;
     }
-    out[i] = static_cast<uint16_t>(quantized_value);
+    out[i] = static_cast<uint16_t>(val);
   }
 }
 
@@ -232,6 +239,7 @@ static void FreeTensorV2(Qnn_Tensor_t *t) {
 }
 
 void FreeTensor(Qnn_Tensor_t *t) {
+  if (!t) return;
   if (t->version == QNN_TENSOR_VERSION_1) {
     FreeTensorV1(t);
   } else if (t->version == QNN_TENSOR_VERSION_2) {
@@ -239,6 +247,12 @@ void FreeTensor(Qnn_Tensor_t *t) {
   } else {
     SHERPA_ONNX_LOGE("Unknown tensor version: %d", t->version);
   }
+}
+
+void DeleteTensor(Qnn_Tensor_t *t) {
+  if (!t) return;
+  FreeTensor(t);
+  delete t;
 }
 
 uint32_t GetSizeInBytes(const uint32_t *dimensions, uint32_t n,
@@ -423,7 +437,7 @@ void CopyTensorInfo(const Qnn_Tensor_t &src, Qnn_Tensor_t &dst) {  // NOLINT
   } else if (src.version == QNN_TENSOR_VERSION_2) {
     CopyTensorInfoV2(src, dst);
   } else {
-    SHERPA_ONNX_LOGE("Unknown tensor version: %d", dst.version);
+    SHERPA_ONNX_LOGE("Unknown tensor version: %d", src.version);
   }
 }
 
@@ -561,19 +575,41 @@ static bool CopyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphs_input,
 
   if (!graphs_info || !graph_info_arr) {
     SHERPA_ONNX_LOGE("Failure to allocate memory for *graphInfo");
+    free(graphs_info);
+    free(graph_info_arr);
+    graphs_info = nullptr;
     return false;
   }
+
+  auto cleanup_partial = [&](uint32_t copied_count) {
+    for (uint32_t j = 0; j < copied_count; ++j) {
+      for (uint32_t k = 0; k < graph_info_arr[j].num_input_tensors; ++k) {
+        FreeTensor(&graph_info_arr[j].input_tensors[k]);
+      }
+      for (uint32_t k = 0; k < graph_info_arr[j].num_output_tensors; ++k) {
+        FreeTensor(&graph_info_arr[j].output_tensors[k]);
+      }
+      free(graph_info_arr[j].input_tensors);
+      free(graph_info_arr[j].output_tensors);
+      free(graph_info_arr[j].graph_name);
+    }
+    free(graph_info_arr);
+    free(graphs_info);
+    graphs_info = nullptr;
+  };
 
   for (uint32_t i = 0; i < num_graphs; ++i) {
     switch (graphs_input[i].version) {
       case QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1:
         SHERPA_ONNX_LOGE("Unsupported version: %d",
                          static_cast<int32_t>(graphs_input[i].version));
+        cleanup_partial(i);
         return false;
 
       case QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_2:
         SHERPA_ONNX_LOGE("Unsupported version: %d",
                          static_cast<int32_t>(graphs_input[i].version));
+        cleanup_partial(i);
         return false;
 
       case QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_3: {
@@ -581,6 +617,8 @@ static bool CopyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphs_input,
             CopyGraphsInfoV3(&graphs_input[i].graphInfoV3, &graph_info_arr[i]);
         if (!ok) {
           SHERPA_ONNX_LOGE("Failed to copy graphs info v3");
+          cleanup_partial(i + 1);
+          return false;
         }
         graphs_info[i] = graph_info_arr + i;
 
@@ -590,6 +628,7 @@ static bool CopyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphs_input,
       default:
         SHERPA_ONNX_LOGE("Unsupported version: %d",
                          static_cast<int32_t>(graphs_input[i].version));
+        cleanup_partial(i);
         return false;
     }
   }

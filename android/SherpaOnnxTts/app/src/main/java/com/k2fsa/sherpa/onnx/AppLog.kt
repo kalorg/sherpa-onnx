@@ -24,6 +24,9 @@ object AppLog {
     private const val LOG_FILE_NAME = "sherpa_app_logs.txt"
     private const val NPU_INIT_MARKER = "npu_init_in_progress.marker"
     private const val SYNTHESIS_MARKER = "synthesis_in_progress.marker"
+    private const val MAX_MEMORY_LOG_CHARS = 128 * 1024
+    private const val TRIMMED_MEMORY_LOG_CHARS = 64 * 1024
+    private const val MAX_LOG_FILE_BYTES = 512L * 1024L
     private val memoryLogs = StringBuilder()
     private val listeners = mutableListOf<() -> Unit>()
     private var logFile: File? = null
@@ -38,8 +41,12 @@ object AppLog {
             if (f.exists() && f.length() > 0) {
                 runCatching {
                     val prev = f.readText()
+                    val tail = prev.takeLast(14000)
+                    if (f.length() > MAX_LOG_FILE_BYTES) {
+                        f.writeText(tail)
+                    }
                     memoryLogs.append("--- PREVIOUS SESSION LOGS ---\n")
-                    memoryLogs.append(prev.takeLast(14000))
+                    memoryLogs.append(tail)
                     memoryLogs.append("--- NEW SESSION START ---\n")
                 }
             }
@@ -129,47 +136,48 @@ object AppLog {
         }.getOrNull()
     }
 
-    @Synchronized
     fun i(msg: String) {
         append("INFO", msg)
         Log.i(TAG, msg)
     }
 
-    @Synchronized
     fun w(msg: String, tr: Throwable? = null) {
         append("WARN", if (tr != null) "$msg\n${Log.getStackTraceString(tr)}" else msg)
         Log.w(TAG, msg, tr)
     }
 
-    @Synchronized
     fun e(msg: String, tr: Throwable? = null) {
         append("ERROR", if (tr != null) "$msg\n${Log.getStackTraceString(tr)}" else msg)
         Log.e(TAG, msg, tr)
     }
 
-    @Synchronized
     private fun append(level: String, text: String) {
         val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT).format(Date())
         val line = "[$time][$level] $text\n"
-        memoryLogs.append(line)
-        runCatching {
-            logFile?.appendText(line)
+        val snapshot: List<() -> Unit>
+        synchronized(this) {
+            memoryLogs.append(line)
+            if (memoryLogs.length > MAX_MEMORY_LOG_CHARS) {
+                memoryLogs.delete(0, memoryLogs.length - TRIMMED_MEMORY_LOG_CHARS)
+            }
+            runCatching {
+                logFile?.appendText(line)
+            }
+            snapshot = listeners.toList()
         }
-        notifyListeners()
+        snapshot.forEach { runCatching { it() } }
     }
 
     @Synchronized
     fun addListener(l: () -> Unit) {
-        listeners.add(l)
+        if (!listeners.contains(l)) {
+            listeners.add(l)
+        }
     }
 
     @Synchronized
     fun removeListener(l: () -> Unit) {
         listeners.remove(l)
-    }
-
-    private fun notifyListeners() {
-        listeners.forEach { runCatching { it() } }
     }
 
     @Synchronized
@@ -226,7 +234,10 @@ object AppLog {
         ))
         val instance = TtsManager.getTts()
         if (instance != null) {
-            sb.append("TTS Instance: Initialized (sampleRate=${instance.sampleRate()}, speakers=${instance.numSpeakers()}, lang=${instance.lang()})\n")
+            val meta = runCatching {
+                "sampleRate=${instance.sampleRate()}, speakers=${instance.numSpeakers()}, lang=${instance.lang()}"
+            }.getOrElse { "released/unavailable (${it.message})" }
+            sb.append("TTS Instance: Initialized ($meta)\n")
         } else {
             sb.append("TTS Instance: Not initialized yet\n")
         }
@@ -248,10 +259,12 @@ object AppLog {
         sb.append("\n")
 
         sb.append("=== LOGCAT (NATIVE SHERPA-ONNX & QNN) ===\n")
+        var process: Process? = null
         try {
-            val process = Runtime.getRuntime().exec(
-                arrayOf("logcat", "-d", "-v", "time", "-t", "350", "sherpa-onnx:V", "SherpaOnnxTts:V", "TtsService:V", "*:E")
-            )
+            process = ProcessBuilder(
+                "logcat", "-d", "-v", "time", "-t", "350",
+                "sherpa-onnx:V", "SherpaOnnxTts:V", "TtsService:V", "*:E"
+            ).redirectErrorStream(true).start()
             BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
                 var line: String?
                 var count = 0
@@ -263,17 +276,23 @@ object AppLog {
                     sb.append("(No logcat entries captured)\n")
                 }
             }
+            process.waitFor()
         } catch (e: Exception) {
             sb.append("Failed to dump logcat: ${e.message}\n")
+        } finally {
+            process?.destroy()
         }
 
         return sb.toString()
     }
 
-    @Synchronized
     fun clear() {
-        memoryLogs.setLength(0)
-        runCatching { logFile?.writeText("") }
-        notifyListeners()
+        val snapshot: List<() -> Unit>
+        synchronized(this) {
+            memoryLogs.setLength(0)
+            runCatching { logFile?.writeText("") }
+            snapshot = listeners.toList()
+        }
+        snapshot.forEach { runCatching { it() } }
     }
 }

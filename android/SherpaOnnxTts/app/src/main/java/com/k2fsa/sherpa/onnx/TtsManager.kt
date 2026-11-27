@@ -18,6 +18,7 @@ object TtsManager {
     const val MODEL_FAMILY_PIPER = "piper"
     const val MODEL_FAMILY_MELOTTS = "melotts"
     const val MODEL_FAMILY_NEUTTS = "neutts_2e"
+    const val MODEL_FAMILY_REVERB = "reverb"
 
     const val NARRATEUR_MODEL_DIR = "pipertts-fr-narrateur-s25-ultra"
     const val FR_MODEL_DIR = "pipertts-fr-qnn-s25-ultra"
@@ -199,10 +200,33 @@ object TtsManager {
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .contains(KEY_NOISE_SCALE)
 
+    private val phonemizerLock = Any()
+
+    /** Initializes the eSpeak-NG (piper-phonemize) native data once, thread-safely. */
+    fun ensurePhonemizer(context: Context) {
+        if (phonemizerReady) return
+        synchronized(phonemizerLock) {
+            if (phonemizerReady) return
+            AppLog.i("Initializing Piper phonemizer native libraries...")
+            val pStart = System.currentTimeMillis()
+            piperPhonemizeInitialize(context.applicationContext)
+            phonemizerReady = true
+            AppLog.i("Phonemizer initialized in ${System.currentTimeMillis() - pStart} ms")
+        }
+    }
+
     fun getActiveLocale(context: Context): Locale {
+        val family = getActiveModelFamily(context)
+        if (family == MODEL_FAMILY_REVERB) {
+            val voice = ReverbTtsEngine.getVoice(ReverbTtsEngine.getSavedVoice(context))
+            return voice.locale
+        }
+        if (LiteRtTtsEngine.isLiteRtFamily(family)) {
+            return LiteRtTtsEngine.localeFor(family, LiteRtTtsEngine.getSavedVoice(context, family))
+        }
         val dir = getActiveModelDir(context)
         val t = ttsInstance
-        val lang = t?.lang()?.lowercase(Locale.ROOT).orEmpty()
+        val lang = runCatching { t?.lang()?.lowercase(Locale.ROOT) }.getOrNull().orEmpty()
         if (lang.startsWith("fr") || dir.contains("-fr-") || dir.contains("narrateur")) {
             return Locale.FRANCE
         }
@@ -210,6 +234,15 @@ object TtsManager {
     }
 
     fun getVoiceId(context: Context): String {
+        val family = getActiveModelFamily(context)
+        if (family == MODEL_FAMILY_REVERB) {
+            val quant = ReverbTtsEngine.getSavedPrecision(context)
+            val voice = ReverbTtsEngine.getSavedVoice(context)
+            return "reverb-$quant-$voice"
+        }
+        if (LiteRtTtsEngine.isLiteRtFamily(family)) {
+            return "litert-${family.removePrefix("litert_")}-${LiteRtTtsEngine.getSavedVoice(context, family)}"
+        }
         val dir = getActiveModelDir(context)
         val locale = getActiveLocale(context)
         val name = when {
@@ -222,9 +255,14 @@ object TtsManager {
     }
 
     fun reset() {
+        val old: OfflineTts?
         synchronized(lock) {
+            old = ttsInstance
             ttsInstance = null
             activeBackend = "Not Initialized"
+        }
+        if (old != null) {
+            Thread({ runCatching { old.free() } }, "TtsReleaseThread").start()
         }
     }
 
@@ -238,17 +276,24 @@ object TtsManager {
         var mode = forceMode ?: getForcedBackendMode(appContext)
         val family = getActiveModelFamily(appContext)
 
-        ttsInstance?.let {
-            if (activeModelDir == targetDir && forcedBackendMode == mode) return it
-        }
-
         synchronized(lock) {
             ttsInstance?.let {
-                if (activeModelDir == targetDir && forcedBackendMode == mode) return it
+                if (activeModelDir == targetDir && forcedBackendMode == mode && activeModelFamily == family) {
+                    return it
+                }
+            }
+
+            // Free any previous native QNN/ONNX engine before allocating a new one
+            // so Hexagon DSP contexts and native buffers are reclaimed immediately.
+            val previous = ttsInstance
+            ttsInstance = null
+            if (previous != null) {
+                runCatching { previous.free() }
             }
 
             val modelDir = targetDir
             activeModelDir = modelDir
+            activeModelFamily = family
             forcedBackendMode = mode
 
             AppLog.init(appContext)
@@ -274,13 +319,7 @@ object TtsManager {
                 forcedBackendMode = "cpu"
             }
 
-            if (!phonemizerReady) {
-                AppLog.i("Initializing Piper phonemizer native libraries...")
-                val pStart = System.currentTimeMillis()
-                piperPhonemizeInitialize(appContext)
-                phonemizerReady = true
-                AppLog.i("Phonemizer initialized in ${System.currentTimeMillis() - pStart} ms")
-            }
+            ensurePhonemizer(appContext)
 
             val cfgAsset = "$modelDir/config.json"
             if (assetExists(appContext, cfgAsset)) {
@@ -444,16 +483,30 @@ object TtsManager {
             return outFile.absolutePath
         }
         if (outFile.exists()) {
-            val assetSize = context.assets.open(path).use { it.available() }
-            if (outFile.length() == assetSize.toLong()) {
+            val assetSize = runCatching {
+                context.assets.openFd(path).use { it.length }
+            }.getOrElse {
+                runCatching { context.assets.open(path).use { it.available().toLong() } }.getOrDefault(-1L)
+            }
+            if (assetSize > 0L && outFile.length() == assetSize) {
                 return outFile.absolutePath
             }
         }
         outFile.parentFile?.mkdirs()
-        context.assets.open(path).use { input ->
-            outFile.outputStream().use { output ->
-                input.copyTo(output)
+        val tmpFile = File(outFile.parentFile, "${outFile.name}.tmp")
+        try {
+            context.assets.open(path).use { input ->
+                tmpFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
             }
+            if (!tmpFile.renameTo(outFile)) {
+                tmpFile.copyTo(outFile, overwrite = true)
+                tmpFile.delete()
+            }
+        } catch (t: Throwable) {
+            tmpFile.delete()
+            throw t
         }
         AppLog.i("Extracted asset: $path (${outFile.length() / 1024} KB)")
         return outFile.absolutePath

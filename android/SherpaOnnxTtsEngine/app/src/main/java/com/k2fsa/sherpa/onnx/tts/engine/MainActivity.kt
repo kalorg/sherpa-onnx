@@ -51,13 +51,12 @@ import com.k2fsa.sherpa.onnx.tts.engine.ui.theme.SherpaOnnxTtsEngineTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.time.TimeSource
-
-const val TAG = "sherpa-onnx-tts-engine"
 
 class MainActivity : ComponentActivity() {
     // TODO(fangjun): Save settings in ttsViewModel
@@ -69,6 +68,7 @@ class MainActivity : ComponentActivity() {
     // https://developer.android.com/reference/kotlin/android/media/AudioTrack
     private lateinit var track: AudioTrack
 
+    @Volatile
     private var stopped: Boolean = false
 
     private var samplesChannel = Channel<FloatArray>(capacity = 128)
@@ -241,71 +241,79 @@ class MainActivity : ComponentActivity() {
 
                                                 }
 
-                                                CoroutineScope(Dispatchers.Default).launch {
-                                                    val timeSource = TimeSource.Monotonic
-                                                    val startTime = timeSource.markNow()
+                                                scope.launch(Dispatchers.Default) {
+                                                    try {
+                                                        val timeSource = TimeSource.Monotonic
+                                                        val startTime = timeSource.markNow()
 
-                                                    val genConfig = GenerationConfig(sid = TtsEngine.speakerId, speed = TtsEngine.speed)
-                                                    if (TtsEngine.isSupertonic) {
-                                                        genConfig.extra = mapOf("lang" to TtsEngine.supertonicLang)
-                                                    }
-                                                    var genText = testText
-                                                    if (TtsEngine.usePhonemize) {
-                                                        // Phonemize outside of sherpa-onnx with
-                                                        // piper-phonemize and pass the phoneme
-                                                        // codepoints.
-                                                        genConfig.phonemeCodepoints =
-                                                            TtsEngine.phonemize(testText)
-                                                        // The text has already been phonemized.
-                                                        genText = ""
-                                                    }
-                                                    val audio =
-                                                        TtsEngine.tts!!.generateWithConfigAndCallback(
-                                                            text = genText,
-                                                            config = genConfig,
-                                                            callback = ::callback,
+                                                        val genConfig = GenerationConfig(sid = TtsEngine.speakerId, speed = TtsEngine.speed)
+                                                        var genText = testText
+                                                        if (TtsEngine.usePhonemize) {
+                                                            // Phonemize outside of sherpa-onnx with
+                                                            // piper-phonemize and pass the phoneme
+                                                            // codepoints.
+                                                            genConfig.phonemeCodepoints =
+                                                                TtsEngine.phonemize(testText)
+                                                            // The text has already been phonemized.
+                                                            genText = ""
+                                                        }
+                                                        val audio =
+                                                            TtsEngine.tts!!.generateWithConfigAndCallback(
+                                                                text = genText,
+                                                                config = genConfig,
+                                                                callback = ::callback,
+                                                            )
+
+                                                        val elapsed =
+                                                            startTime.elapsedNow().inWholeMilliseconds.toFloat() / 1000
+                                                        val sampleRate = TtsEngine.tts!!.sampleRate().toFloat()
+                                                        val audioDuration =
+                                                            if (sampleRate > 0f) audio.samples.size / sampleRate else 0f
+                                                        val rtfValue =
+                                                            if (audioDuration > 0f) elapsed / audioDuration else 0f
+                                                        val RTF = String.format(
+                                                            "Number of threads: %d\nElapsed: %.3f s\nAudio duration: %.3f s\nRTF: %.3f/%.3f = %.3f",
+                                                            TtsEngine.tts!!.config.model.numThreads,
+                                                            elapsed,
+                                                            audioDuration,
+                                                            elapsed,
+                                                            audioDuration,
+                                                            rtfValue
                                                         )
 
-                                                    val elapsed =
-                                                        startTime.elapsedNow().inWholeMilliseconds.toFloat() / 1000;
-                                                    val audioDuration =
-                                                        audio.samples.size / TtsEngine.tts!!.sampleRate()
-                                                            .toFloat()
-                                                    val RTF = String.format(
-                                                        "Number of threads: %d\nElapsed: %.3f s\nAudio duration: %.3f s\nRTF: %.3f/%.3f = %.3f",
-                                                        TtsEngine.tts!!.config.model.numThreads,
-                                                        elapsed,
-                                                        audioDuration,
-                                                        elapsed,
-                                                        audioDuration,
-                                                        elapsed / audioDuration
-                                                    )
-
-                                                    scope.launch {
-                                                        Log.i(TAG, "send 0 samples")
+                                                        scope.launch {
+                                                            Log.i(TAG, "send 0 samples")
                                                             samplesChannel.send(FloatArray(0))
-                                                        Log.i(TAG, "send 0 samples done")
-                                                    }
-
-                                                    val filename =
-                                                        application.filesDir.absolutePath + "/generated.wav"
-
-
-                                                    val ok =
-                                                        audio.samples.isNotEmpty() && audio.save(
-                                                            filename
-                                                        )
-
-                                                    if (ok) {
-                                                        withContext(Dispatchers.Main) {
-                                                            startEnabled = true
-                                                            playEnabled = true
-                                                            saveEnabled = true
-                                                            shareEnabled = true
-                                                            rtfText = RTF
+                                                            Log.i(TAG, "send 0 samples done")
                                                         }
 
+                                                        val filename =
+                                                            application.filesDir.absolutePath + "/generated.wav"
 
+                                                        val ok =
+                                                            audio.samples.isNotEmpty() && audio.save(
+                                                                filename
+                                                            )
+
+                                                        withContext(Dispatchers.Main) {
+                                                            startEnabled = true
+                                                            if (ok) {
+                                                                playEnabled = true
+                                                                saveEnabled = true
+                                                                shareEnabled = true
+                                                                rtfText = RTF
+                                                            }
+                                                        }
+                                                    } catch (e: Throwable) {
+                                                        Log.e(TAG, "TTS synthesis failed", e)
+                                                        withContext(Dispatchers.Main) {
+                                                            startEnabled = true
+                                                            Toast.makeText(
+                                                                applicationContext,
+                                                                "Synthesis failed: ${e.message}",
+                                                                Toast.LENGTH_SHORT
+                                                            ).show()
+                                                        }
                                                     }
                                                 }
                                             }
@@ -383,14 +391,23 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        stopped = true
+        scope.cancel()
+        samplesChannel.close()
+        if (::track.isInitialized) {
+            runCatching { track.release() }
+        }
         stopMediaPlayer()
         super.onDestroy()
     }
 
     private fun stopMediaPlayer() {
-        mediaPlayer?.stop()
-        mediaPlayer?.release()
+        val mp = mediaPlayer
         mediaPlayer = null
+        if (mp != null) {
+            runCatching { mp.stop() }
+            runCatching { mp.release() }
+        }
     }
 
     private fun onClickPlay() {

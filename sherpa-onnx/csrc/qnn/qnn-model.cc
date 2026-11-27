@@ -574,6 +574,21 @@ class QnnModel::Impl {
         &graphs_info, &graphs_count, debug_, LogCallback, backend_->LogLevel());
     SHERPA_ONNX_QNN_CHECK(ret, "Failed to call compose_graphs_fn_handle_");
 
+    if (graphs_count == 0 || !graphs_info) {
+      throw std::runtime_error("QnnModel_composeGraphs returned 0 graphs");
+    }
+
+    struct GraphsInfoGuard {
+      FreeGraphInfoFnHandleType free_fn;
+      GraphInfo ***info;
+      uint32_t count;
+      ~GraphsInfoGuard() {
+        if (free_fn && info && *info) {
+          free_fn(info, count);
+        }
+      }
+    } guard{free_graph_info_fn_handle_, &graphs_info, graphs_count};
+
     if (debug_) {
       SHERPA_ONNX_LOGE("graphs_count: %d", (int32_t)graphs_count);
     }
@@ -605,7 +620,7 @@ class QnnModel::Impl {
     input_tensor_names_.reserve(graph.num_input_tensors);
 
     for (uint32_t i = 0; i < graph.num_input_tensors; ++i) {
-      auto p = TensorPtr(new Qnn_Tensor_t(QNN_TENSOR_INIT), &FreeTensor);
+      auto p = TensorPtr(new Qnn_Tensor_t(QNN_TENSOR_INIT), &DeleteTensor);
 
       CopyTensorInfo(graph.input_tensors[i], *p);
 
@@ -632,7 +647,7 @@ class QnnModel::Impl {
     output_tensors_.reserve(graph.num_output_tensors);
     output_tensor_names_.reserve(graph.num_output_tensors);
     for (uint32_t i = 0; i < graph.num_output_tensors; ++i) {
-      auto p = TensorPtr(new Qnn_Tensor_t(QNN_TENSOR_INIT), &FreeTensor);
+      auto p = TensorPtr(new Qnn_Tensor_t(QNN_TENSOR_INIT), &DeleteTensor);
 
       CopyTensorInfo(graph.output_tensors[i], *p);
 

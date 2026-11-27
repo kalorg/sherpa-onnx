@@ -67,8 +67,10 @@
     jstring s = (jstring)env->GetObjectField(config, fid);                    \
     if (s != nullptr) {                                                       \
       const char *p = env->GetStringUTFChars(s, nullptr);                     \
-      cpp_field = p;                                                          \
-      env->ReleaseStringUTFChars(s, p);                                       \
+      if (p != nullptr) {                                                     \
+        cpp_field = p;                                                        \
+        env->ReleaseStringUTFChars(s, p);                                     \
+      }                                                                       \
       env->DeleteLocalRef(s);                                                 \
     }                                                                         \
   } while (0)
@@ -193,19 +195,24 @@ ReturnType SafeJNI(JNIEnv *env, const char *functionName, Func func,
   try {
     return func();
   } catch (const std::exception &e) {
-    jclass exClass = env->FindClass("java/lang/RuntimeException");
-    if (exClass != nullptr) {
-      std::string errorMessage = std::string(functionName) + ": " + e.what();
-      env->ThrowNew(exClass, errorMessage.c_str());
-      env->DeleteLocalRef(exClass);
+    if (!env->ExceptionCheck()) {
+      jclass exClass = env->FindClass("java/lang/RuntimeException");
+      if (exClass != nullptr) {
+        std::string errorMessage = std::string(functionName) + ": " + e.what();
+        env->ThrowNew(exClass, errorMessage.c_str());
+        env->DeleteLocalRef(exClass);
+      }
     }
   } catch (...) {
-    jclass exClass = env->FindClass("java/lang/RuntimeException");
-    if (exClass != nullptr) {
-      std::string errorMessage = std::string(functionName) +
-                                 ": Native exception: caught unknown exception";
-      env->ThrowNew(exClass, errorMessage.c_str());
-      env->DeleteLocalRef(exClass);
+    if (!env->ExceptionCheck()) {
+      jclass exClass = env->FindClass("java/lang/RuntimeException");
+      if (exClass != nullptr) {
+        std::string errorMessage =
+            std::string(functionName) +
+            ": Native exception: caught unknown exception";
+        env->ThrowNew(exClass, errorMessage.c_str());
+        env->DeleteLocalRef(exClass);
+      }
     }
   }
   return defaultValue;
@@ -217,19 +224,24 @@ void SafeJNI(JNIEnv *env, const char *functionName, Func func) {
   try {
     func();
   } catch (const std::exception &e) {
-    jclass exClass = env->FindClass("java/lang/RuntimeException");
-    if (exClass != nullptr) {
-      std::string errorMessage = std::string(functionName) + ": " + e.what();
-      env->ThrowNew(exClass, errorMessage.c_str());
-      env->DeleteLocalRef(exClass);
+    if (!env->ExceptionCheck()) {
+      jclass exClass = env->FindClass("java/lang/RuntimeException");
+      if (exClass != nullptr) {
+        std::string errorMessage = std::string(functionName) + ": " + e.what();
+        env->ThrowNew(exClass, errorMessage.c_str());
+        env->DeleteLocalRef(exClass);
+      }
     }
   } catch (...) {
-    jclass exClass = env->FindClass("java/lang/RuntimeException");
-    if (exClass != nullptr) {
-      std::string errorMessage = std::string(functionName) +
-                                 ": Native exception: caught unknown exception";
-      env->ThrowNew(exClass, errorMessage.c_str());
-      env->DeleteLocalRef(exClass);
+    if (!env->ExceptionCheck()) {
+      jclass exClass = env->FindClass("java/lang/RuntimeException");
+      if (exClass != nullptr) {
+        std::string errorMessage =
+            std::string(functionName) +
+            ": Native exception: caught unknown exception";
+        env->ThrowNew(exClass, errorMessage.c_str());
+        env->DeleteLocalRef(exClass);
+      }
     }
   }
 }

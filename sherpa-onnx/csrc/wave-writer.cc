@@ -5,6 +5,7 @@
 #include "sherpa-onnx/csrc/wave-writer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <string>
@@ -15,6 +16,16 @@
 
 namespace sherpa_onnx {
 namespace {
+
+inline int16_t FloatToInt16(float sample) {
+  if (!std::isfinite(sample)) {
+    return 0;
+  }
+  float clamped = std::clamp(sample, -1.0f, 1.0f);
+  return static_cast<int16_t>(
+      std::clamp<int32_t>(static_cast<int32_t>(clamped * 32767.0f), -32768,
+                          32767));
+}
 
 // see http://soundfile.sapp.org/doc/WaveFormat/
 //
@@ -55,6 +66,11 @@ bool WriteWave(const std::string &filename, int32_t sampling_rate,
 
 bool WriteWave(const std::string &filename, int32_t sampling_rate,
                const float *samples_ch0, const float *samples_ch1, int32_t n) {
+  if (n < 0 || (n > 0 && samples_ch0 == nullptr)) {
+    SHERPA_ONNX_LOGE("Invalid wave buffer arguments: n=%d", n);
+    return false;
+  }
+
   std::string buffer;
   buffer.resize(WaveFileSize(n, samples_ch1 == nullptr ? 1 : 2));
 
@@ -100,16 +116,14 @@ void WriteWave(char *buffer, int32_t sampling_rate, const float *samples_ch0,
 
   std::vector<int16_t> samples_int16_ch0(n);
   for (int32_t i = 0; i != n; ++i) {
-    samples_int16_ch0[i] =
-        std::clamp<int32_t>(samples_ch0[i] * 32767, -32768, 32767);
+    samples_int16_ch0[i] = FloatToInt16(samples_ch0[i]);
   }
 
   std::vector<int16_t> samples_int16_ch1;
   if (samples_ch1) {
     samples_int16_ch1.resize(n);
     for (int32_t i = 0; i != n; ++i) {
-      samples_int16_ch1[i] =
-          std::clamp<int32_t>(samples_ch1[i] * 32767, -32768, 32767);
+      samples_int16_ch1[i] = FloatToInt16(samples_ch1[i]);
     }
   }
 
@@ -131,6 +145,12 @@ void WriteWave(char *buffer, int32_t sampling_rate, const float *samples_ch0,
 bool WriteWaveMultiChannel(const std::string &filename, int32_t sampling_rate,
                            const float *const *samples, int32_t num_channels,
                            int32_t n) {
+  if (n < 0 || num_channels <= 0 || (n > 0 && samples == nullptr)) {
+    SHERPA_ONNX_LOGE("Invalid multichannel wave arguments: n=%d, ch=%d", n,
+                     num_channels);
+    return false;
+  }
+
   std::string buffer;
   buffer.resize(WaveFileSize(n, num_channels));
 
@@ -180,8 +200,7 @@ void WriteWaveMultiChannel(char *buffer, int32_t sampling_rate,
 
   for (int32_t i = 0; i != n; ++i) {
     for (int32_t c = 0; c != num_channels; ++c) {
-      p[i * num_channels + c] =
-          std::clamp<int32_t>(samples[c][i] * 32767, -32768, 32767);
+      p[i * num_channels + c] = FloatToInt16(samples[c][i]);
     }
   }
 }

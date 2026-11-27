@@ -131,10 +131,12 @@ class OfflineTtsVitsModelQnn::Impl {
     std::lock_guard<std::mutex> lock(mutex_);
 
     std::vector<int64_t> x_shape = x.GetTensorTypeAndShapeInfo().GetShape();
-    if (x_shape[0] != 1) {
-      SHERPA_ONNX_LOGE("Support only batch_size == 1. Given: %d",
-                       static_cast<int32_t>(x_shape[0]));
-      SHERPA_ONNX_EXIT(-1);
+    if (x_shape.size() < 2 || x_shape[0] != 1) {
+      throw std::runtime_error(
+          "OfflineTtsVitsModelQnn::Run expects 2D tensor with batch_size == 1");
+    }
+    if (max_seq_len_ <= 0) {
+      throw std::runtime_error("OfflineTtsVitsModelQnn: invalid max_seq_len_");
     }
 
     const int64_t *x_ptr = x.GetTensorData<int64_t>();
@@ -173,10 +175,19 @@ class OfflineTtsVitsModelQnn::Impl {
     std::lock_guard<std::mutex> lock(mutex_);
 
     std::vector<int64_t> x_shape = x.GetTensorTypeAndShapeInfo().GetShape();
-    if (x_shape[0] != 1) {
-      SHERPA_ONNX_LOGE("Support only batch_size == 1. Given: %d",
-                       static_cast<int32_t>(x_shape[0]));
-      SHERPA_ONNX_EXIT(-1);
+    std::vector<int64_t> tones_shape =
+        tones.GetTensorTypeAndShapeInfo().GetShape();
+    if (x_shape.size() < 2 || x_shape[0] != 1) {
+      throw std::runtime_error(
+          "OfflineTtsVitsModelQnn::Run expects 2D tensor with batch_size == 1");
+    }
+    if (tones_shape.size() < 2 || tones_shape[0] != 1 ||
+        tones_shape[1] < x_shape[1]) {
+      throw std::runtime_error(
+          "OfflineTtsVitsModelQnn::Run: tones tensor shape mismatch");
+    }
+    if (max_seq_len_ <= 0) {
+      throw std::runtime_error("OfflineTtsVitsModelQnn: invalid max_seq_len_");
     }
 
     const int64_t *x_ptr = x.GetTensorData<int64_t>();
@@ -546,6 +557,13 @@ class OfflineTtsVitsModelQnn::Impl {
       y_mask[j] = 1.0f;
     }
 
+    if (static_cast<int32_t>(w_ceil.size()) < max_seq_len_ ||
+        static_cast<int32_t>(x_mask.size()) < max_seq_len_) {
+      SHERPA_ONNX_LOGE("Unexpected SDP/encoder output size (w_ceil=%zu, x_mask=%zu, max_seq_len=%d)",
+                       w_ceil.size(), x_mask.size(), max_seq_len_);
+      return {};
+    }
+
     // Monotonic alignment path generation (matches Qualcomm AI Hub Models
     // generate_path)
     std::vector<float> attn_squeezed(
@@ -584,8 +602,11 @@ class OfflineTtsVitsModelQnn::Impl {
 
     // z has shape [1, hidden_dim_, upsampled_max_seq_len_]
     std::vector<float> z = flow_model_->GetOutputTensorData("z");
-    if (z.empty()) {
-      SHERPA_ONNX_LOGE("Empty output from QNN TTS flow");
+    size_t expected_z_size =
+        static_cast<size_t>(hidden_dim_) * static_cast<size_t>(upsampled_max_seq_len_);
+    if (z.size() < expected_z_size) {
+      SHERPA_ONNX_LOGE("Unexpected flow output size: %zu (expected >= %zu)",
+                       z.size(), expected_z_size);
       return {};
     }
 
@@ -593,6 +614,11 @@ class OfflineTtsVitsModelQnn::Impl {
     // DEC_SEQ_OVERLAP = 12, MAX_DEC_SEQ_LEN = 40, DEC_SEQ_LEN = 64
     const int32_t dec_overlap = 12;
     const int32_t max_dec_seq_len = dec_seq_len_ - 2 * dec_overlap;
+    if (max_dec_seq_len <= 0 || upsample_factor_ <= 0) {
+      SHERPA_ONNX_LOGE("Invalid decoder parameters: dec_seq_len=%d, upsample_factor=%d",
+                       dec_seq_len_, upsample_factor_);
+      return {};
+    }
 
     std::vector<float> audio;
     audio.reserve(y_length * upsample_factor_);

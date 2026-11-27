@@ -24,8 +24,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class MainActivity : AppCompatActivity() {
+    @Volatile
     private var tts: OfflineTts? = null
     private lateinit var text: EditText
     private lateinit var sid: EditText
@@ -47,20 +50,58 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvActiveFamilyBanner: TextView
     private lateinit var btnChangeModel: Button
 
+    // Reverb-TTS Quantization Selector (4-bit vs 8-bit NPU)
+    private lateinit var layoutReverbQuantization: LinearLayout
+    private lateinit var rgReverbQuantization: RadioGroup
+    private lateinit var rbReverb4bit: RadioButton
+    private lateinit var rbReverb8bit: RadioButton
+
+    // Model Download Card (Reverb-TTS & LiteRT Hugging Face models)
+    private lateinit var layoutModelDownload: LinearLayout
+    private lateinit var tvDownloadStatus: TextView
+    private lateinit var btnDownloadModel: Button
+    private val activeDownloadCancel = AtomicBoolean(false)
+
     // Voices & Emotions
     private lateinit var rgVoices: RadioGroup
+    // Piper TTS Voices
     private lateinit var rbVoiceNarrateur: RadioButton
     private lateinit var rbVoiceEn: RadioButton
     private lateinit var rbVoiceFr: RadioButton
+    // MeloTTS Voices
     private lateinit var rbMeloUs: RadioButton
     private lateinit var rbMeloBr: RadioButton
     private lateinit var rbMeloIn: RadioButton
     private lateinit var rbMeloAu: RadioButton
     private lateinit var rbMeloDef: RadioButton
+    // NeuTTS-2E Voices
     private lateinit var rbNeuEmily: RadioButton
     private lateinit var rbNeuPaul: RadioButton
     private lateinit var rbNeuSophie: RadioButton
     private lateinit var rbNeuSteven: RadioButton
+    // Reverb-TTS Voices
+    private lateinit var rbReverbFrFemale: RadioButton
+    private lateinit var rbReverbFrMale: RadioButton
+    private lateinit var rbReverbEnNarrator: RadioButton
+    private lateinit var rbReverbEnWhisper: RadioButton
+    private lateinit var rbReverbEnAngry: RadioButton
+    private lateinit var rbReverbEnMale1: RadioButton
+    private lateinit var rbReverbEnMale2: RadioButton
+    private lateinit var rbReverbEsMale: RadioButton
+    private lateinit var rbReverbDeFemale: RadioButton
+    private lateinit var rbReverbItMale: RadioButton
+    // LiteRT Voices
+    private lateinit var rbLitertPocketEstelle: RadioButton
+    private lateinit var rbLitertPocketAlba: RadioButton
+    private lateinit var rbLitertPocketMarius: RadioButton
+    private lateinit var rbLitertKokoroSiwis: RadioButton
+    private lateinit var rbLitertKokoroHeart: RadioButton
+    private lateinit var rbLitertKokoroBella: RadioButton
+    private lateinit var rbLitertKokoroEmma: RadioButton
+    private lateinit var rbLitertMatchaLj: RadioButton
+    private lateinit var rbLitertPhononFreya: RadioButton
+    private lateinit var rbLitertPhononClaire: RadioButton
+
     private lateinit var layoutEmotions: LinearLayout
     private lateinit var tvEmotionStatus: TextView
 
@@ -99,8 +140,19 @@ class MainActivity : AppCompatActivity() {
 
     @Volatile
     private var stopped: Boolean = false
+    private val audioTrackLock = Any()
+    private val initGeneration = AtomicInteger(0)
     private var mediaPlayer: MediaPlayer? = null
     private var track: AudioTrack? = null
+
+    private val logListener: () -> Unit = {
+        runOnUiThread {
+            if (!isFinishing && !isDestroyed) {
+                tvDebugLog.text = AppLog.getRecentLogs(80)
+                scrollLog.post { scrollLog.fullScroll(ScrollView.FOCUS_DOWN) }
+            }
+        }
+    }
 
     private val saveLauncher =
         registerForActivityResult(ActivityResultContracts.CreateDocument("audio/wav")) { uri ->
@@ -134,6 +186,17 @@ class MainActivity : AppCompatActivity() {
         tvActiveFamilyBanner = findViewById(R.id.tv_active_family_banner)
         btnChangeModel = findViewById(R.id.btn_change_model)
 
+        // Reverb Quantization & Download views
+        layoutReverbQuantization = findViewById(R.id.layout_reverb_quantization)
+        rgReverbQuantization = findViewById(R.id.rg_reverb_quantization)
+        rbReverb4bit = findViewById(R.id.rb_reverb_4bit)
+        rbReverb8bit = findViewById(R.id.rb_reverb_8bit)
+
+        layoutModelDownload = findViewById(R.id.layout_model_download)
+        tvDownloadStatus = findViewById(R.id.tv_download_status)
+        btnDownloadModel = findViewById(R.id.btn_download_model)
+
+        // Voices
         rgVoices = findViewById(R.id.rg_voices)
         rbVoiceNarrateur = findViewById(R.id.rb_voice_narrateur)
         rbVoiceEn = findViewById(R.id.rb_voice_en)
@@ -147,6 +210,29 @@ class MainActivity : AppCompatActivity() {
         rbNeuPaul = findViewById(R.id.rb_neu_paul)
         rbNeuSophie = findViewById(R.id.rb_neu_sophie)
         rbNeuSteven = findViewById(R.id.rb_neu_steven)
+
+        rbReverbFrFemale = findViewById(R.id.rb_reverb_fr_female)
+        rbReverbFrMale = findViewById(R.id.rb_reverb_fr_male)
+        rbReverbEnNarrator = findViewById(R.id.rb_reverb_en_narrator)
+        rbReverbEnWhisper = findViewById(R.id.rb_reverb_en_whisper)
+        rbReverbEnAngry = findViewById(R.id.rb_reverb_en_angry)
+        rbReverbEnMale1 = findViewById(R.id.rb_reverb_en_male1)
+        rbReverbEnMale2 = findViewById(R.id.rb_reverb_en_male2)
+        rbReverbEsMale = findViewById(R.id.rb_reverb_es_male)
+        rbReverbDeFemale = findViewById(R.id.rb_reverb_de_female)
+        rbReverbItMale = findViewById(R.id.rb_reverb_it_male)
+
+        rbLitertPocketEstelle = findViewById(R.id.rb_litert_pocket_estelle)
+        rbLitertPocketAlba = findViewById(R.id.rb_litert_pocket_alba)
+        rbLitertPocketMarius = findViewById(R.id.rb_litert_pocket_marius)
+        rbLitertKokoroSiwis = findViewById(R.id.rb_litert_kokoro_siwis)
+        rbLitertKokoroHeart = findViewById(R.id.rb_litert_kokoro_heart)
+        rbLitertKokoroBella = findViewById(R.id.rb_litert_kokoro_bella)
+        rbLitertKokoroEmma = findViewById(R.id.rb_litert_kokoro_emma)
+        rbLitertMatchaLj = findViewById(R.id.rb_litert_matcha_lj)
+        rbLitertPhononFreya = findViewById(R.id.rb_litert_phonon_freya)
+        rbLitertPhononClaire = findViewById(R.id.rb_litert_phonon_claire)
+
         layoutEmotions = findViewById(R.id.layout_emotions)
         tvEmotionStatus = findViewById(R.id.tv_emotion_status)
 
@@ -176,6 +262,16 @@ class MainActivity : AppCompatActivity() {
         setupSliders()
         setupEmotionButtons()
 
+        btnDownloadModel.setOnClickListener { onClickDownloadModel() }
+
+        rgReverbQuantization.setOnCheckedChangeListener { _, checkedId ->
+            val newQuant = if (checkedId == R.id.rb_reverb_8bit) ReverbTtsEngine.QUANT_8BIT else ReverbTtsEngine.QUANT_4BIT
+            AppLog.i("Tab 2: User changed Reverb precision -> $newQuant")
+            ReverbTtsEngine.setSavedPrecision(applicationContext, newQuant)
+            refreshModelDownloadCard()
+            startTtsInit()
+        }
+
         // Restore persisted model family, voice, speaker ID, emotion, and acoustic sliders
         val savedFamily = TtsManager.getActiveModelFamily(applicationContext)
         val savedVoiceDir = TtsManager.getActiveModelDir(applicationContext)
@@ -196,6 +292,11 @@ class MainActivity : AppCompatActivity() {
         when (savedFamily) {
             TtsManager.MODEL_FAMILY_MELOTTS -> rgModelFamily.check(R.id.rb_family_melotts)
             TtsManager.MODEL_FAMILY_NEUTTS -> rgModelFamily.check(R.id.rb_family_neutts)
+            TtsManager.MODEL_FAMILY_REVERB -> rgModelFamily.check(R.id.rb_family_reverb)
+            LiteRtTtsEngine.FAMILY_POCKET -> rgModelFamily.check(R.id.rb_family_litert_pocket)
+            LiteRtTtsEngine.FAMILY_KOKORO -> rgModelFamily.check(R.id.rb_family_litert_kokoro)
+            LiteRtTtsEngine.FAMILY_MATCHA -> rgModelFamily.check(R.id.rb_family_litert_matcha)
+            LiteRtTtsEngine.FAMILY_PHONON -> rgModelFamily.check(R.id.rb_family_litert_phonon)
             else -> rgModelFamily.check(R.id.rb_family_piper)
         }
         updateUiForModelFamily(savedFamily, savedVoiceDir, savedSid, triggerInit = false)
@@ -231,6 +332,36 @@ class MainActivity : AppCompatActivity() {
                     TtsManager.reset()
                     applyEmotionPreset(TtsManager.getSavedEmotion(applicationContext))
                     updateUiForModelFamily(TtsManager.MODEL_FAMILY_NEUTTS, TtsManager.MELO_EN_MODEL_DIR, 0, triggerInit = true)
+                }
+                R.id.rb_family_reverb -> {
+                    AppLog.i("Tab 1: User selected Model Family -> REVERB-TTS (Zero-Shot 24kHz NPU)")
+                    TtsManager.setActiveModelFamily(TtsManager.MODEL_FAMILY_REVERB, applicationContext)
+                    TtsManager.reset()
+                    updateUiForModelFamily(TtsManager.MODEL_FAMILY_REVERB, "", 0, triggerInit = true)
+                }
+                R.id.rb_family_litert_pocket -> {
+                    AppLog.i("Tab 1: User selected Model Family -> LiteRT PocketTTS 100M")
+                    TtsManager.setActiveModelFamily(LiteRtTtsEngine.FAMILY_POCKET, applicationContext)
+                    TtsManager.reset()
+                    updateUiForModelFamily(LiteRtTtsEngine.FAMILY_POCKET, "", 0, triggerInit = true)
+                }
+                R.id.rb_family_litert_kokoro -> {
+                    AppLog.i("Tab 1: User selected Model Family -> LiteRT Kokoro-82M")
+                    TtsManager.setActiveModelFamily(LiteRtTtsEngine.FAMILY_KOKORO, applicationContext)
+                    TtsManager.reset()
+                    updateUiForModelFamily(LiteRtTtsEngine.FAMILY_KOKORO, "", 0, triggerInit = true)
+                }
+                R.id.rb_family_litert_matcha -> {
+                    AppLog.i("Tab 1: User selected Model Family -> LiteRT Matcha-TTS")
+                    TtsManager.setActiveModelFamily(LiteRtTtsEngine.FAMILY_MATCHA, applicationContext)
+                    TtsManager.reset()
+                    updateUiForModelFamily(LiteRtTtsEngine.FAMILY_MATCHA, "", 0, triggerInit = true)
+                }
+                R.id.rb_family_litert_phonon -> {
+                    AppLog.i("Tab 1: User selected Model Family -> LiteRT Phonon-31M")
+                    TtsManager.setActiveModelFamily(LiteRtTtsEngine.FAMILY_PHONON, applicationContext)
+                    TtsManager.reset()
+                    updateUiForModelFamily(LiteRtTtsEngine.FAMILY_PHONON, "", 0, triggerInit = true)
                 }
             }
         }
@@ -268,6 +399,28 @@ class MainActivity : AppCompatActivity() {
                 R.id.rb_neu_paul -> selectVoice(TtsManager.MELO_EN_MODEL_DIR, 1, "My name is Paul, and I am synthesizing speech on the Qualcomm Hexagon processor.")
                 R.id.rb_neu_sophie -> selectVoice(TtsManager.MELO_EN_MODEL_DIR, 2, "Hello, I am Sophie. Notice how the emotional parameters shape the rhythm and tone.")
                 R.id.rb_neu_steven -> selectVoice(TtsManager.MELO_EN_MODEL_DIR, 3, "Hi there, Steven here! Ready to test real-time neural speech synthesis.")
+                // REVERB-TTS VOICES
+                R.id.rb_reverb_fr_female -> selectReverbVoice("fr_female_standard")
+                R.id.rb_reverb_fr_male -> selectReverbVoice("fr_male_standard")
+                R.id.rb_reverb_en_narrator -> selectReverbVoice("en_female_narrator")
+                R.id.rb_reverb_en_whisper -> selectReverbVoice("en_female_whisper")
+                R.id.rb_reverb_en_angry -> selectReverbVoice("en_male_angry")
+                R.id.rb_reverb_en_male1 -> selectReverbVoice("en_male_narrator_1")
+                R.id.rb_reverb_en_male2 -> selectReverbVoice("en_male_narrator_2")
+                R.id.rb_reverb_es_male -> selectReverbVoice("es_male_standard_1")
+                R.id.rb_reverb_de_female -> selectReverbVoice("de_female_standard")
+                R.id.rb_reverb_it_male -> selectReverbVoice("it_male_standard")
+                // LITERT VOICES
+                R.id.rb_litert_pocket_estelle -> selectLiteRtVoice(LiteRtTtsEngine.FAMILY_POCKET, "estelle", "Bonjour ! Cette voix française est synthétisée en local avec Google LiteRT sur votre Galaxy S25 Ultra.")
+                R.id.rb_litert_pocket_alba -> selectLiteRtVoice(LiteRtTtsEngine.FAMILY_POCKET, "alba", "Hello! This voice is synthesized on-device with Google LiteRT on your Galaxy S25 Ultra.")
+                R.id.rb_litert_pocket_marius -> selectLiteRtVoice(LiteRtTtsEngine.FAMILY_POCKET, "marius", "Hello! This is Marius speaking with PocketTTS on Qualcomm Snapdragon.")
+                R.id.rb_litert_kokoro_siwis -> selectLiteRtVoice(LiteRtTtsEngine.FAMILY_KOKORO, "ff_siwis", "Bonjour ! Cette voix française est synthétisée par Kokoro avec le timbre Siwis.")
+                R.id.rb_litert_kokoro_heart -> selectLiteRtVoice(LiteRtTtsEngine.FAMILY_KOKORO, "af_heart", "Hello! This is Heart speaking with Kokoro on Google AI Edge LiteRT.")
+                R.id.rb_litert_kokoro_bella -> selectLiteRtVoice(LiteRtTtsEngine.FAMILY_KOKORO, "af_bella", "Hello! This is Bella speaking with Kokoro text to speech engine.")
+                R.id.rb_litert_kokoro_emma -> selectLiteRtVoice(LiteRtTtsEngine.FAMILY_KOKORO, "bf_emma", "Good afternoon! This is Emma speaking with a British English accent.")
+                R.id.rb_litert_matcha_lj -> selectLiteRtVoice(LiteRtTtsEngine.FAMILY_MATCHA, "ljspeech", "Matcha-TTS is a fast, highly expressive neural text-to-speech model.")
+                R.id.rb_litert_phonon_freya -> selectLiteRtVoice(LiteRtTtsEngine.FAMILY_PHONON, "freya", "Hello! This is Freya speaking with Phonon thirty-one M.")
+                R.id.rb_litert_phonon_claire -> selectLiteRtVoice(LiteRtTtsEngine.FAMILY_PHONON, "claire", "Hello! This is Claire speaking with Phonon thirty-one M.")
             }
         }
 
@@ -285,13 +438,7 @@ class MainActivity : AppCompatActivity() {
             tvDebugLog.text = ""
         }
 
-        AppLog.addListener {
-            runOnUiThread {
-                tvDebugLog.text = AppLog.getRecentLogs(80)
-                scrollLog.post { scrollLog.fullScroll(ScrollView.FOCUS_DOWN) }
-            }
-        }
-
+        AppLog.addListener(logListener)
         tvDebugLog.text = AppLog.getRecentLogs(80)
 
         startTtsInit(
@@ -305,7 +452,6 @@ class MainActivity : AppCompatActivity() {
         btnTabVoice.setOnClickListener { switchTab(showModelsTab = false) }
         btnGoToVoiceTab.setOnClickListener { switchTab(showModelsTab = false) }
         btnChangeModel.setOnClickListener { switchTab(showModelsTab = true) }
-        // Start on Tab 2 (Voice & Settings) by default, with Tab 1 one tap away
         switchTab(showModelsTab = false)
     }
 
@@ -323,6 +469,112 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun refreshModelDownloadCard() {
+        val family = TtsManager.getActiveModelFamily(applicationContext)
+        if (family == TtsManager.MODEL_FAMILY_REVERB) {
+            val quant = ReverbTtsEngine.getSavedPrecision(applicationContext)
+            val voiceId = ReverbTtsEngine.getSavedVoice(applicationContext)
+            val missing = ReverbTtsEngine.missingFiles(applicationContext, quant, voiceId)
+            layoutModelDownload.visibility = View.VISIBLE
+            if (missing.isEmpty()) {
+                tvDownloadStatus.text = "Statut : ✅ Modèle Reverb-TTS (${quant.uppercase(Locale.ROOT)}) prêt en local"
+                tvDownloadStatus.setTextColor(Color.parseColor("#1B5E20"))
+                btnDownloadModel.visibility = View.GONE
+            } else {
+                val totalMb = missing.sumOf { it.approxMb }
+                tvDownloadStatus.text = "Fichiers manquants (~$totalMb Mo) : ${missing.joinToString { it.name }}"
+                tvDownloadStatus.setTextColor(Color.parseColor("#B71C1C"))
+                btnDownloadModel.visibility = View.VISIBLE
+                btnDownloadModel.isEnabled = true
+                btnDownloadModel.text = "⬇️ Télécharger Reverb-TTS ${quant.uppercase(Locale.ROOT)} (~$totalMb Mo)"
+            }
+        } else if (LiteRtTtsEngine.isLiteRtFamily(family)) {
+            val voiceId = LiteRtTtsEngine.getSavedVoice(applicationContext, family)
+            val mode = TtsManager.getForcedBackendMode(applicationContext)
+            val missing = LiteRtTtsEngine.missingFiles(applicationContext, family, voiceId, mode)
+            layoutModelDownload.visibility = View.VISIBLE
+            if (missing.isEmpty()) {
+                tvDownloadStatus.text = "Statut : ✅ Modèle ${LiteRtTtsEngine.familyLabel(family)} prêt en local"
+                tvDownloadStatus.setTextColor(Color.parseColor("#1B5E20"))
+                btnDownloadModel.visibility = View.GONE
+            } else {
+                val totalMb = missing.sumOf { it.approxMb }
+                tvDownloadStatus.text = "Fichiers manquants (~$totalMb Mo) : ${missing.joinToString { it.name }}"
+                tvDownloadStatus.setTextColor(Color.parseColor("#B71C1C"))
+                btnDownloadModel.visibility = View.VISIBLE
+                btnDownloadModel.isEnabled = true
+                btnDownloadModel.text = "⬇️ Télécharger ${LiteRtTtsEngine.familyLabel(family)} (~$totalMb Mo)"
+            }
+        } else {
+            layoutModelDownload.visibility = View.GONE
+        }
+    }
+
+    private fun onClickDownloadModel() {
+        val activeFamily = TtsManager.getActiveModelFamily(applicationContext)
+        activeDownloadCancel.set(false)
+        btnDownloadModel.isEnabled = false
+        generate.isEnabled = false
+        tvDownloadStatus.text = "Démarrage du téléchargement depuis Hugging Face..."
+
+        Thread {
+            try {
+                if (activeFamily == TtsManager.MODEL_FAMILY_REVERB) {
+                    val quant = ReverbTtsEngine.getSavedPrecision(applicationContext)
+                    val voiceId = ReverbTtsEngine.getSavedVoice(applicationContext)
+                    ReverbTtsEngine.download(
+                        context = applicationContext,
+                        quant = quant,
+                        voiceId = voiceId,
+                        cancel = activeDownloadCancel
+                    ) { fileName, downloaded, total ->
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            val pct = if (total > 0) ((downloaded * 100) / total).toInt() else 0
+                            val dMb = downloaded / (1024 * 1024)
+                            val tMb = total / (1024 * 1024)
+                            tvDownloadStatus.text = "⬇️ $fileName : $pct% ($dMb Mo / $tMb Mo)"
+                        }
+                    }
+                } else if (LiteRtTtsEngine.isLiteRtFamily(activeFamily)) {
+                    val voiceId = LiteRtTtsEngine.getSavedVoice(applicationContext, activeFamily)
+                    val mode = TtsManager.getForcedBackendMode(applicationContext)
+                    LiteRtTtsEngine.download(
+                        context = applicationContext,
+                        family = activeFamily,
+                        voiceId = voiceId,
+                        mode = mode,
+                        cancel = activeDownloadCancel
+                    ) { fileName, downloaded, total ->
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            val pct = if (total > 0) ((downloaded * 100) / total).toInt() else 0
+                            val dMb = downloaded / (1024 * 1024)
+                            val tMb = total / (1024 * 1024)
+                            tvDownloadStatus.text = "⬇️ $fileName : $pct% ($dMb Mo / $tMb Mo)"
+                        }
+                    }
+                }
+
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    Toast.makeText(applicationContext, "Téléchargement terminé avec succès !", Toast.LENGTH_SHORT).show()
+                    refreshModelDownloadCard()
+                    startTtsInit()
+                }
+            } catch (e: Throwable) {
+                AppLog.e("Model download failed: ${e.message}", e)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    tvDownloadStatus.text = "Erreur téléchargement : ${e.message}"
+                    tvDownloadStatus.setTextColor(Color.parseColor("#B71C1C"))
+                    btnDownloadModel.isEnabled = true
+                    Toast.makeText(applicationContext, "Échec téléchargement : ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
     private fun updateUiForModelFamily(
         family: String,
         voiceDir: String,
@@ -333,23 +585,58 @@ class MainActivity : AppCompatActivity() {
         val isPiper = family == TtsManager.MODEL_FAMILY_PIPER
         val isMelo = family == TtsManager.MODEL_FAMILY_MELOTTS
         val isNeu = family == TtsManager.MODEL_FAMILY_NEUTTS
+        val isReverb = family == TtsManager.MODEL_FAMILY_REVERB
+        val isPocket = family == LiteRtTtsEngine.FAMILY_POCKET
+        val isKokoro = family == LiteRtTtsEngine.FAMILY_KOKORO
+        val isMatcha = family == LiteRtTtsEngine.FAMILY_MATCHA
+        val isPhonon = family == LiteRtTtsEngine.FAMILY_PHONON
 
+        // Piper
         rbVoiceNarrateur.visibility = if (isPiper) View.VISIBLE else View.GONE
         rbVoiceEn.visibility = if (isPiper) View.VISIBLE else View.GONE
         rbVoiceFr.visibility = if (isPiper) View.VISIBLE else View.GONE
 
+        // MeloTTS
         rbMeloUs.visibility = if (isMelo) View.VISIBLE else View.GONE
         rbMeloBr.visibility = if (isMelo) View.VISIBLE else View.GONE
         rbMeloIn.visibility = if (isMelo) View.VISIBLE else View.GONE
         rbMeloAu.visibility = if (isMelo) View.VISIBLE else View.GONE
         rbMeloDef.visibility = if (isMelo) View.VISIBLE else View.GONE
 
+        // NeuTTS-2E
         rbNeuEmily.visibility = if (isNeu) View.VISIBLE else View.GONE
         rbNeuPaul.visibility = if (isNeu) View.VISIBLE else View.GONE
         rbNeuSophie.visibility = if (isNeu) View.VISIBLE else View.GONE
         rbNeuSteven.visibility = if (isNeu) View.VISIBLE else View.GONE
-
         layoutEmotions.visibility = if (isNeu) View.VISIBLE else View.GONE
+
+        // Reverb-TTS
+        layoutReverbQuantization.visibility = if (isReverb) View.VISIBLE else View.GONE
+        rbReverbFrFemale.visibility = if (isReverb) View.VISIBLE else View.GONE
+        rbReverbFrMale.visibility = if (isReverb) View.VISIBLE else View.GONE
+        rbReverbEnNarrator.visibility = if (isReverb) View.VISIBLE else View.GONE
+        rbReverbEnWhisper.visibility = if (isReverb) View.VISIBLE else View.GONE
+        rbReverbEnAngry.visibility = if (isReverb) View.VISIBLE else View.GONE
+        rbReverbEnMale1.visibility = if (isReverb) View.VISIBLE else View.GONE
+        rbReverbEnMale2.visibility = if (isReverb) View.VISIBLE else View.GONE
+        rbReverbEsMale.visibility = if (isReverb) View.VISIBLE else View.GONE
+        rbReverbDeFemale.visibility = if (isReverb) View.VISIBLE else View.GONE
+        rbReverbItMale.visibility = if (isReverb) View.VISIBLE else View.GONE
+
+        // LiteRT
+        rbLitertPocketEstelle.visibility = if (isPocket) View.VISIBLE else View.GONE
+        rbLitertPocketAlba.visibility = if (isPocket) View.VISIBLE else View.GONE
+        rbLitertPocketMarius.visibility = if (isPocket) View.VISIBLE else View.GONE
+
+        rbLitertKokoroSiwis.visibility = if (isKokoro) View.VISIBLE else View.GONE
+        rbLitertKokoroHeart.visibility = if (isKokoro) View.VISIBLE else View.GONE
+        rbLitertKokoroBella.visibility = if (isKokoro) View.VISIBLE else View.GONE
+        rbLitertKokoroEmma.visibility = if (isKokoro) View.VISIBLE else View.GONE
+
+        rbLitertMatchaLj.visibility = if (isMatcha) View.VISIBLE else View.GONE
+
+        rbLitertPhononFreya.visibility = if (isPhonon) View.VISIBLE else View.GONE
+        rbLitertPhononClaire.visibility = if (isPhonon) View.VISIBLE else View.GONE
 
         when (family) {
             TtsManager.MODEL_FAMILY_MELOTTS -> {
@@ -379,6 +666,71 @@ class MainActivity : AppCompatActivity() {
                     text.setText("I can't believe it's finally here! Testing emotional speech synthesis on the Galaxy S25 Ultra.")
                 }
             }
+            TtsManager.MODEL_FAMILY_REVERB -> {
+                tvActiveFamilyBanner.text = "Modèle actif : 🔊 Reverb-TTS (Zero-Shot 24 kHz)"
+                tvModelArchDetails.text = "Architecture : Reverb-TTS 297M (Software Mansion / OmniVoice distillé Qwen3)\n• NPU : Qualcomm Hexagon HTP V79/V81 INT4 QNN PTE (Snapdragon 8 Elite SM8750)\n• Précision NPU au choix : INT4 (191 Mo) ou INT8 W8A8 Studio (307 Mo)\n• Codec : Higgs Audio v2 tokenizer 24 kHz (8 codebooks, 25 fps)"
+
+                val quant = ReverbTtsEngine.getSavedPrecision(applicationContext)
+                if (quant == ReverbTtsEngine.QUANT_8BIT) {
+                    rbReverb8bit.isChecked = true
+                } else {
+                    rbReverb4bit.isChecked = true
+                }
+
+                val savedVoice = ReverbTtsEngine.getSavedVoice(applicationContext)
+                when (savedVoice) {
+                    "fr_male_standard" -> rgVoices.check(R.id.rb_reverb_fr_male)
+                    "en_female_narrator" -> rgVoices.check(R.id.rb_reverb_en_narrator)
+                    "en_female_whisper" -> rgVoices.check(R.id.rb_reverb_en_whisper)
+                    "en_male_angry" -> rgVoices.check(R.id.rb_reverb_en_angry)
+                    "en_male_narrator_1" -> rgVoices.check(R.id.rb_reverb_en_male1)
+                    "en_male_narrator_2" -> rgVoices.check(R.id.rb_reverb_en_male2)
+                    "es_male_standard_1" -> rgVoices.check(R.id.rb_reverb_es_male)
+                    "de_female_standard" -> rgVoices.check(R.id.rb_reverb_de_female)
+                    "it_male_standard" -> rgVoices.check(R.id.rb_reverb_it_male)
+                    else -> rgVoices.check(R.id.rb_reverb_fr_female)
+                }
+                text.setText(ReverbTtsEngine.getVoice(savedVoice).defaultText)
+            }
+            LiteRtTtsEngine.FAMILY_POCKET -> {
+                tvActiveFamilyBanner.text = "Modèle actif : 🇫🇷/🇺🇸 LiteRT PocketTTS 100M"
+                tvModelArchDetails.text = "Architecture : PocketTTS 100M FlowLM (Kyutai / Google AI Edge LiteRT)\n• Voix Estelle (Français 122 Mo) & 8 Voix Anglaises (156 Mo)\n• Exécution MediaPipe Tasks Audio sur CPU XNNPACK (24 kHz)"
+                val savedVoice = LiteRtTtsEngine.getSavedVoice(applicationContext, family)
+                when (savedVoice) {
+                    "alba" -> rgVoices.check(R.id.rb_litert_pocket_alba)
+                    "marius" -> rgVoices.check(R.id.rb_litert_pocket_marius)
+                    else -> rgVoices.check(R.id.rb_litert_pocket_estelle)
+                }
+                text.setText(if (savedVoice == "estelle") "Bonjour ! Cette voix française est synthétisée en local avec Google LiteRT sur votre Galaxy S25 Ultra." else "Hello! This voice is synthesized on-device with Google LiteRT on your Galaxy S25 Ultra.")
+            }
+            LiteRtTtsEngine.FAMILY_KOKORO -> {
+                tvActiveFamilyBanner.text = "Modèle actif : 🌐 LiteRT Kokoro-82M"
+                tvModelArchDetails.text = "Architecture : Kokoro-82M StyleTTS2 (Google AI Edge LiteRT)\n• Vocodeur accéléré sur GPU Adreno ML Drift (OpenCL) + CPU XNNPACK (295 Mo)\n• 54 voix dont Siwis (FR) et Heart, Bella, Emma (EN) — 24 kHz"
+                val savedVoice = LiteRtTtsEngine.getSavedVoice(applicationContext, family)
+                when (savedVoice) {
+                    "af_heart" -> rgVoices.check(R.id.rb_litert_kokoro_heart)
+                    "af_bella" -> rgVoices.check(R.id.rb_litert_kokoro_bella)
+                    "bf_emma" -> rgVoices.check(R.id.rb_litert_kokoro_emma)
+                    else -> rgVoices.check(R.id.rb_litert_kokoro_siwis)
+                }
+                text.setText(if (savedVoice == "ff_siwis") "Bonjour ! Cette voix française est synthétisée par Kokoro avec le timbre Siwis." else "Hello! This is Kokoro speaking with Google AI Edge LiteRT on your Galaxy S25 Ultra.")
+            }
+            LiteRtTtsEngine.FAMILY_MATCHA -> {
+                tvActiveFamilyBanner.text = "Modèle actif : ⚡ LiteRT Matcha-TTS"
+                tvModelArchDetails.text = "Architecture : Matcha-TTS CFM + HiFi-GAN (LiteRT CompiledModel API)\n• GPU Adreno ML Drift + CPU XNNPACK\n• Phonémisation eSpeak-NG via piper-phonemize (22.05 kHz)"
+                rgVoices.check(R.id.rb_litert_matcha_lj)
+                text.setText("Matcha-TTS is a fast, highly expressive neural text-to-speech model.")
+            }
+            LiteRtTtsEngine.FAMILY_PHONON -> {
+                tvActiveFamilyBanner.text = "Modèle actif : 🚀 LiteRT Phonon-31M"
+                tvModelArchDetails.text = "Architecture : Phonon-31M Gradium FlowLM (Bundle léger 84 Mo)\n• Décodage neural rapide sur CPU XNNPACK (24 kHz)"
+                val savedVoice = LiteRtTtsEngine.getSavedVoice(applicationContext, family)
+                when (savedVoice) {
+                    "claire" -> rgVoices.check(R.id.rb_litert_phonon_claire)
+                    else -> rgVoices.check(R.id.rb_litert_phonon_freya)
+                }
+                text.setText("Hello! This is Phonon thirty-one M running on Google AI Edge LiteRT.")
+            }
             else -> {
                 tvActiveFamilyBanner.text = "Modèle actif : 🎙️ Piper TTS (VITS)"
                 tvModelArchDetails.text = "Architecture : Piper TTS (VITS 4-graphes QNN HTP V79 + eSpeak-NG)\n• NPU : encoder.bin, sdp.bin, flow.bin, decoder.bin\n• CPU Fallback : narrateur.onnx / fr_FR-siwis-low.onnx (22050 Hz)"
@@ -399,6 +751,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         suppressVoiceListener = false
+        refreshModelDownloadCard()
 
         if (triggerInit) {
             startTtsInit(
@@ -421,6 +774,23 @@ class MainActivity : AppCompatActivity() {
         } else {
             Toast.makeText(applicationContext, "Locuteur sid=$speakerId sélectionné", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun selectReverbVoice(voiceId: String) {
+        ReverbTtsEngine.setSavedVoice(applicationContext, voiceId)
+        val voice = ReverbTtsEngine.getVoice(voiceId)
+        text.setText(voice.defaultText)
+        AppLog.i("Reverb-TTS voice selected: $voiceId")
+        refreshModelDownloadCard()
+        Toast.makeText(applicationContext, "Voix Reverb '${voice.label}' sélectionnée", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun selectLiteRtVoice(family: String, voiceId: String, sampleText: String) {
+        LiteRtTtsEngine.setSavedVoice(applicationContext, family, voiceId)
+        text.setText(sampleText)
+        AppLog.i("LiteRT voice selected: family=$family, voice=$voiceId")
+        refreshModelDownloadCard()
+        Toast.makeText(applicationContext, "Voix LiteRT '$voiceId' sélectionnée", Toast.LENGTH_SHORT).show()
     }
 
     private fun setupEmotionButtons() {
@@ -583,6 +953,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startTtsInit(preferredModel: String? = null, forceMode: String? = null) {
+        val gen = initGeneration.incrementAndGet()
+        stopped = true
         generate.isEnabled = false
         generate.text = "Initialisation..."
         play.isEnabled = false
@@ -591,34 +963,104 @@ class MainActivity : AppCompatActivity() {
         tvBackendStatus.text = "Backend: Initialisation en cours..."
         tvPerfMetrics.text = "Status: Initialisation du moteur..."
 
+        val activeFamily = TtsManager.getActiveModelFamily(applicationContext)
+        val mode = forceMode ?: TtsManager.getForcedBackendMode(applicationContext)
+
+        refreshModelDownloadCard()
+
         Thread {
             try {
-                AppLog.i("Starting TTS initialization...")
-                val instance = TtsManager.ensureInitialized(
-                    context = applicationContext,
-                    preferredModelDir = preferredModel,
-                    forceMode = forceMode
-                )
-                tts = instance
-                initAudioTrack(instance.sampleRate())
+                AppLog.i("Starting TTS initialization for family=$activeFamily (mode=$mode)...")
 
-                runOnUiThread {
-                    generate.text = getString(R.string.generate)
-                    generate.isEnabled = true
-                    tvBackendStatus.text = "Backend: ${TtsManager.getActiveBackend()}"
-                    tvPerfMetrics.text = "Prêt: ${TtsManager.getActiveBackend()} | Lang: ${instance.lang()} | ${instance.sampleRate()} Hz"
-                    Toast.makeText(
-                        applicationContext,
-                        "Prêt : ${TtsManager.getActiveBackend()}",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                if (activeFamily == TtsManager.MODEL_FAMILY_REVERB) {
+                    val quant = ReverbTtsEngine.getSavedPrecision(applicationContext)
+                    val voiceId = ReverbTtsEngine.getSavedVoice(applicationContext)
+                    val missing = ReverbTtsEngine.missingFiles(applicationContext, quant, voiceId)
+                    if (missing.isNotEmpty()) {
+                        val totalMb = missing.sumOf { it.approxMb }
+                        runOnUiThread {
+                            if (gen != initGeneration.get() || isFinishing || isDestroyed) return@runOnUiThread
+                            generate.text = "Modèle Reverb non téléchargé"
+                            tvBackendStatus.text = "Reverb-TTS ${quant.uppercase(Locale.ROOT)} : Fichiers manquants (~$totalMb Mo)"
+                            tvPerfMetrics.text = "Cliquez sur 'Télécharger' pour installer les fichiers NPU."
+                            refreshModelDownloadCard()
+                        }
+                        return@Thread
+                    }
+                    val sampleRate = ReverbTtsEngine.prepare(applicationContext, quant, voiceId, mode)
+                    if (gen != initGeneration.get() || isDestroyed) return@Thread
+                    initAudioTrack(sampleRate)
+
+                    runOnUiThread {
+                        if (gen != initGeneration.get() || isFinishing || isDestroyed) return@runOnUiThread
+                        generate.text = getString(R.string.generate)
+                        generate.isEnabled = true
+                        tvBackendStatus.text = "Backend: ${ReverbTtsEngine.getActiveBackend()}"
+                        tvPerfMetrics.text = "Prêt: ${ReverbTtsEngine.getActiveBackend()} | Voice: $voiceId | $sampleRate Hz"
+                        refreshModelDownloadCard()
+                        Toast.makeText(applicationContext, "Prêt : ${ReverbTtsEngine.getActiveBackend()}", Toast.LENGTH_SHORT).show()
+                    }
+                } else if (LiteRtTtsEngine.isLiteRtFamily(activeFamily)) {
+                    val voiceId = LiteRtTtsEngine.getSavedVoice(applicationContext, activeFamily)
+                    val missing = LiteRtTtsEngine.missingFiles(applicationContext, activeFamily, voiceId, mode)
+                    if (missing.isNotEmpty()) {
+                        val totalMb = missing.sumOf { it.approxMb }
+                        runOnUiThread {
+                            if (gen != initGeneration.get() || isFinishing || isDestroyed) return@runOnUiThread
+                            generate.text = "Modèle LiteRT non téléchargé"
+                            tvBackendStatus.text = "${LiteRtTtsEngine.familyLabel(activeFamily)} : Fichiers manquants (~$totalMb Mo)"
+                            tvPerfMetrics.text = "Cliquez sur 'Télécharger' pour installer les fichiers LiteRT."
+                            refreshModelDownloadCard()
+                        }
+                        return@Thread
+                    }
+                    val sampleRate = LiteRtTtsEngine.prepare(applicationContext, activeFamily, voiceId, mode)
+                    if (gen != initGeneration.get() || isDestroyed) return@Thread
+                    initAudioTrack(sampleRate)
+
+                    runOnUiThread {
+                        if (gen != initGeneration.get() || isFinishing || isDestroyed) return@runOnUiThread
+                        generate.text = getString(R.string.generate)
+                        generate.isEnabled = true
+                        tvBackendStatus.text = "Backend: ${LiteRtTtsEngine.getActiveBackend()}"
+                        tvPerfMetrics.text = "Prêt: ${LiteRtTtsEngine.getActiveBackend()} | Voice: $voiceId | $sampleRate Hz"
+                        refreshModelDownloadCard()
+                        Toast.makeText(applicationContext, "Prêt : ${LiteRtTtsEngine.getActiveBackend()}", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    val instance = TtsManager.ensureInitialized(
+                        context = applicationContext,
+                        preferredModelDir = preferredModel,
+                        forceMode = forceMode
+                    )
+                    if (gen != initGeneration.get() || isDestroyed) {
+                        return@Thread
+                    }
+                    tts = instance
+                    initAudioTrack(instance.sampleRate())
+
+                    runOnUiThread {
+                        if (gen != initGeneration.get() || isFinishing || isDestroyed) return@runOnUiThread
+                        generate.text = getString(R.string.generate)
+                        generate.isEnabled = true
+                        tvBackendStatus.text = "Backend: ${TtsManager.getActiveBackend()}"
+                        tvPerfMetrics.text = "Prêt: ${TtsManager.getActiveBackend()} | Lang: ${instance.lang()} | ${instance.sampleRate()} Hz"
+                        refreshModelDownloadCard()
+                        Toast.makeText(
+                            applicationContext,
+                            "Prêt : ${TtsManager.getActiveBackend()}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
             } catch (e: Throwable) {
                 AppLog.e("Failed to initialize TTS", e)
                 runOnUiThread {
+                    if (gen != initGeneration.get() || isFinishing || isDestroyed) return@runOnUiThread
                     generate.text = "Échec initialisation"
                     tvBackendStatus.text = "Erreur: ${e.message}"
                     tvPerfMetrics.text = "Erreur d'init: ${e.message}"
+                    refreshModelDownloadCard()
                     Toast.makeText(
                         applicationContext,
                         "Erreur init: ${e.message}",
@@ -630,12 +1072,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initAudioTrack(sampleRate: Int) {
-        track?.release()
-        val bufLength = AudioTrack.getMinBufferSize(
+        if (sampleRate <= 0) return
+        val minBuf = AudioTrack.getMinBufferSize(
             sampleRate,
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_FLOAT
         )
+        val bufLength = if (minBuf > 0) minBuf else sampleRate * 4 / 10
 
         val attr = AudioAttributes.Builder()
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -648,28 +1091,212 @@ class MainActivity : AppCompatActivity() {
             .setSampleRate(sampleRate)
             .build()
 
-        track = AudioTrack(
-            attr,
-            format,
-            bufLength,
-            AudioTrack.MODE_STREAM,
-            AudioManager.AUDIO_SESSION_ID_GENERATE
-        )
-        track?.play()
-    }
-
-    private fun callback(samples: FloatArray): Int {
-        val t = track ?: return 0
-        return if (!stopped) {
-            t.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
-            1
-        } else {
-            t.stop()
-            0
+        synchronized(audioTrackLock) {
+            runCatching { track?.release() }
+            track = null
+            if (isDestroyed) return
+            val created = AudioTrack(
+                attr,
+                format,
+                bufLength,
+                AudioTrack.MODE_STREAM,
+                AudioManager.AUDIO_SESSION_ID_GENERATE
+            )
+            if (created.state == AudioTrack.STATE_INITIALIZED) {
+                created.play()
+                track = created
+            } else {
+                created.release()
+            }
         }
     }
 
+    private fun callback(samples: FloatArray): Int {
+        synchronized(audioTrackLock) {
+            val t = track ?: return 0
+            if (t.state != AudioTrack.STATE_INITIALIZED) return 0
+            return if (!stopped) {
+                runCatching { t.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING) }
+                1
+            } else {
+                runCatching { t.stop() }
+                0
+            }
+        }
+    }
+
+    private fun prepareAudioTrackForSynthesis() {
+        synchronized(audioTrackLock) {
+            track?.takeIf { it.state == AudioTrack.STATE_INITIALIZED }?.let { t ->
+                runCatching { t.pause() }
+                runCatching { t.flush() }
+                runCatching { t.play() }
+            }
+        }
+    }
+
+    private fun setButtonsGenerating() {
+        play.isEnabled = false
+        save.isEnabled = false
+        share.isEnabled = false
+        generate.isEnabled = false
+        stopped = false
+        tvPerfMetrics.text = "Synthèse en cours..."
+    }
+
+    private fun onSynthesisSuccess(
+        ok: Boolean,
+        elapsedMs: Long,
+        audioDurationSec: Double,
+        rtf: Double,
+        backendName: String
+    ) {
+        if (ok) {
+            play.isEnabled = true
+            save.isEnabled = true
+            share.isEnabled = true
+        }
+        generate.isEnabled = true
+        synchronized(audioTrackLock) {
+            track?.takeIf { it.state == AudioTrack.STATE_INITIALIZED }?.let { t ->
+                runCatching { t.stop() }
+            }
+        }
+        tvPerfMetrics.text = String.format(
+            Locale.ROOT,
+            "Temps: %d ms | Audio: %.2f s | RTF: %.3fx | %s",
+            elapsedMs, audioDurationSec, rtf, backendName
+        )
+    }
+
+    private fun onSynthesisError(e: Throwable) {
+        generate.isEnabled = true
+        tvPerfMetrics.text = "Erreur de synthèse: ${e.message}"
+        Toast.makeText(
+            applicationContext,
+            "Erreur synthèse: ${e.message}",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
     private fun onClickGenerate() {
+        val textStr = text.text.toString().trim()
+        if (textStr.isEmpty()) {
+            Toast.makeText(applicationContext, "Veuillez saisir un texte non vide !", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val activeFamily = TtsManager.getActiveModelFamily(applicationContext)
+        val mode = TtsManager.getForcedBackendMode(applicationContext)
+
+        if (activeFamily == TtsManager.MODEL_FAMILY_REVERB) {
+            val quant = ReverbTtsEngine.getSavedPrecision(applicationContext)
+            val voiceId = ReverbTtsEngine.getSavedVoice(applicationContext)
+            val missing = ReverbTtsEngine.missingFiles(applicationContext, quant, voiceId)
+            if (missing.isNotEmpty()) {
+                Toast.makeText(applicationContext, "Veuillez d'abord télécharger le modèle Reverb-TTS !", Toast.LENGTH_SHORT).show()
+                refreshModelDownloadCard()
+                return
+            }
+
+            prepareAudioTrackForSynthesis()
+            setButtonsGenerating()
+
+            Thread {
+                val genStart = System.currentTimeMillis()
+                try {
+                    AppLog.markSynthesisStart(applicationContext, "family=reverb, quant=$quant, voice=$voiceId, speed=$currentSpeed")
+                    val audio = ReverbTtsEngine.synthesize(
+                        context = applicationContext,
+                        quant = quant,
+                        voiceId = voiceId,
+                        mode = mode,
+                        text = textStr,
+                        speed = currentSpeed,
+                        callback = this::callback
+                    )
+                    AppLog.markSynthesisDone(applicationContext)
+
+                    val elapsedMs = System.currentTimeMillis() - genStart
+                    val numSamples = audio.samples.size
+                    val sampleRate = audio.sampleRate
+                    val audioDurationSec = if (sampleRate > 0) numSamples.toDouble() / sampleRate else 0.0
+                    val rtf = if (audioDurationSec > 0) (elapsedMs / 1000.0) / audioDurationSec else 0.0
+
+                    val filename = application.filesDir.absolutePath + "/generated.wav"
+                    val ok = audio.samples.isNotEmpty() && (audio.save(filename) || File(filename).exists())
+
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        onSynthesisSuccess(ok, elapsedMs, audioDurationSec, rtf, ReverbTtsEngine.getActiveBackend())
+                    }
+                } catch (e: Throwable) {
+                    AppLog.markSynthesisDone(applicationContext)
+                    AppLog.e("Failed to generate audio (Reverb-TTS)", e)
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        onSynthesisError(e)
+                    }
+                }
+            }.start()
+            return
+        }
+
+        if (LiteRtTtsEngine.isLiteRtFamily(activeFamily)) {
+            val voiceId = LiteRtTtsEngine.getSavedVoice(applicationContext, activeFamily)
+            val missing = LiteRtTtsEngine.missingFiles(applicationContext, activeFamily, voiceId, mode)
+            if (missing.isNotEmpty()) {
+                Toast.makeText(applicationContext, "Veuillez d'abord télécharger le modèle LiteRT !", Toast.LENGTH_SHORT).show()
+                refreshModelDownloadCard()
+                return
+            }
+
+            prepareAudioTrackForSynthesis()
+            setButtonsGenerating()
+
+            Thread {
+                val genStart = System.currentTimeMillis()
+                try {
+                    AppLog.markSynthesisStart(applicationContext, "family=$activeFamily, voice=$voiceId, speed=$currentSpeed")
+                    val audio = LiteRtTtsEngine.synthesize(
+                        context = applicationContext,
+                        family = activeFamily,
+                        voiceId = voiceId,
+                        mode = mode,
+                        text = textStr,
+                        speed = currentSpeed,
+                        noiseScale = currentNoiseScale,
+                        silenceScale = currentSilenceScale,
+                        callback = this::callback
+                    )
+                    AppLog.markSynthesisDone(applicationContext)
+
+                    val elapsedMs = System.currentTimeMillis() - genStart
+                    val numSamples = audio.samples.size
+                    val sampleRate = audio.sampleRate
+                    val audioDurationSec = if (sampleRate > 0) numSamples.toDouble() / sampleRate else 0.0
+                    val rtf = if (audioDurationSec > 0) (elapsedMs / 1000.0) / audioDurationSec else 0.0
+
+                    val filename = application.filesDir.absolutePath + "/generated.wav"
+                    LiteRtTtsEngine.writeWav(File(filename), audio.samples, sampleRate)
+                    val ok = audio.samples.isNotEmpty()
+
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        onSynthesisSuccess(ok, elapsedMs, audioDurationSec, rtf, LiteRtTtsEngine.getActiveBackend())
+                    }
+                } catch (e: Throwable) {
+                    AppLog.markSynthesisDone(applicationContext)
+                    AppLog.e("Failed to generate audio (LiteRT)", e)
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        onSynthesisError(e)
+                    }
+                }
+            }.start()
+            return
+        }
+
         val activeTts = tts
         if (activeTts == null) {
             startTtsInit()
@@ -682,25 +1309,10 @@ class MainActivity : AppCompatActivity() {
         val noiseW = currentNoiseW
         val silenceScale = currentSilenceScale
         val activeDir = TtsManager.getActiveModelDir(applicationContext)
-        val activeFamily = TtsManager.getActiveModelFamily(applicationContext)
         val useMelo = TtsManager.usesMeloLexicon(activeDir)
 
-        val textStr = text.text.toString().trim()
-        if (textStr.isEmpty()) {
-            Toast.makeText(applicationContext, "Veuillez saisir un texte non vide !", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        track?.pause()
-        track?.flush()
-        track?.play()
-
-        play.isEnabled = false
-        save.isEnabled = false
-        share.isEnabled = false
-        generate.isEnabled = false
-        stopped = false
-        tvPerfMetrics.text = "Synthèse en cours..."
+        prepareAudioTrackForSynthesis()
+        setButtonsGenerating()
 
         Thread {
             val genStart = System.currentTimeMillis()
@@ -753,55 +1365,63 @@ class MainActivity : AppCompatActivity() {
                 val ok = audio.samples.isNotEmpty() && audio.save(filename)
 
                 runOnUiThread {
-                    if (ok) {
-                        play.isEnabled = true
-                        save.isEnabled = true
-                        share.isEnabled = true
-                    }
-                    generate.isEnabled = true
-                    track?.stop()
-                    tvPerfMetrics.text = String.format(
-                        Locale.ROOT,
-                        "Temps: %d ms | Audio: %.2f s | RTF: %.3fx | %s",
-                        elapsedMs, audioDurationSec, rtf, TtsManager.getActiveBackend()
-                    )
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    onSynthesisSuccess(ok, elapsedMs, audioDurationSec, rtf, TtsManager.getActiveBackend())
                 }
             } catch (e: Throwable) {
                 AppLog.markSynthesisDone(applicationContext)
                 AppLog.e("Failed to generate audio", e)
                 runOnUiThread {
-                    generate.isEnabled = true
-                    tvPerfMetrics.text = "Erreur de synthèse: ${e.message}"
-                    Toast.makeText(
-                        applicationContext,
-                        "Erreur synthèse: ${e.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    onSynthesisError(e)
                 }
             }
         }.start()
     }
 
+    private fun releaseMediaPlayer() {
+        val mp = mediaPlayer
+        mediaPlayer = null
+        if (mp != null) {
+            runCatching { mp.stop() }
+            runCatching { mp.release() }
+        }
+    }
+
     private fun onClickPlay() {
-        val filename = application.filesDir.absolutePath + "/generated.wav"
-        mediaPlayer?.stop()
+        val file = File(application.filesDir, "generated.wav")
+        if (!file.exists()) {
+            Toast.makeText(applicationContext, "Aucun fichier audio généré", Toast.LENGTH_SHORT).show()
+            return
+        }
+        releaseMediaPlayer()
         mediaPlayer = MediaPlayer.create(
             applicationContext,
-            Uri.fromFile(File(filename))
+            Uri.fromFile(file)
         )
         mediaPlayer?.start()
     }
 
     private fun onClickStop() {
         stopped = true
-        play.isEnabled = true
-        save.isEnabled = true
-        share.isEnabled = true
-        generate.isEnabled = true
-        track?.pause()
-        track?.flush()
-        mediaPlayer?.stop()
-        mediaPlayer = null
+        val activeFamily = TtsManager.getActiveModelFamily(applicationContext)
+        if (activeFamily == TtsManager.MODEL_FAMILY_REVERB) {
+            ReverbTtsEngine.stop()
+        } else if (LiteRtTtsEngine.isLiteRtFamily(activeFamily)) {
+            LiteRtTtsEngine.stop()
+        }
+        val hasAudio = File(application.filesDir, "generated.wav").exists()
+        play.isEnabled = hasAudio
+        save.isEnabled = hasAudio
+        share.isEnabled = hasAudio
+        generate.isEnabled = (tts != null || activeFamily == TtsManager.MODEL_FAMILY_REVERB || LiteRtTtsEngine.isLiteRtFamily(activeFamily))
+        synchronized(audioTrackLock) {
+            track?.takeIf { it.state == AudioTrack.STATE_INITIALIZED }?.let { t ->
+                runCatching { t.pause() }
+                runCatching { t.flush() }
+            }
+        }
+        releaseMediaPlayer()
     }
 
     private fun onClickSave() {
@@ -843,10 +1463,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        stopped = true
+        initGeneration.incrementAndGet()
+        activeDownloadCancel.set(true)
+        AppLog.removeListener(logListener)
+        ReverbTtsEngine.release()
+        LiteRtTtsEngine.release()
+        synchronized(audioTrackLock) {
+            runCatching { track?.release() }
+            track = null
+        }
+        releaseMediaPlayer()
         super.onDestroy()
-        track?.release()
-        track = null
-        mediaPlayer?.release()
-        mediaPlayer = null
     }
 }

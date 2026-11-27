@@ -5,6 +5,7 @@
 
 #include <stdlib.h>
 
+#include <mutex>
 #include <string>
 
 #include "sherpa-onnx/csrc/macros.h"
@@ -21,14 +22,27 @@ void PrependAdspLibraryPath(const std::string &new_path) {
 }
 #else
 void PrependAdspLibraryPath(const std::string &new_path) {
+  if (new_path.empty()) {
+    return;
+  }
+
+  static std::mutex env_mutex;
+  std::lock_guard<std::mutex> lock(env_mutex);
+
   const char *old_path = getenv("ADSP_LIBRARY_PATH");
   std::string updated_path;
 
-  if (old_path && !std::string(old_path).empty()) {
+  if (old_path && old_path[0] != '\0') {
+    std::string old_str(old_path);
+    // Avoid duplicating new_path across repeated engine re-initializations.
+    std::string padded = ";" + old_str + ";";
+    if (padded.find(";" + new_path + ";") != std::string::npos) {
+      return;
+    }
     // Caution(fangjun):
     // 1. Must use ; here, not :
     // 2. Must use prepend, not append
-    updated_path = new_path + ";" + std::string(old_path);
+    updated_path = new_path + ";" + old_str;
   } else {
     updated_path = new_path;  // no old path
   }

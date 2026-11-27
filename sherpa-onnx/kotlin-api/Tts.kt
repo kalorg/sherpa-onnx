@@ -2,6 +2,9 @@
 package com.k2fsa.sherpa.onnx
 
 import android.content.res.AssetManager
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 
 data class OfflineTtsVitsModelConfig(
     var model: String = "",
@@ -62,6 +65,7 @@ class OfflineTts(
     assetManager: AssetManager? = null,
     var config: OfflineTtsConfig,
 ) {
+    private val ptrLock = ReentrantReadWriteLock()
     private var ptr: Long
 
     init {
@@ -75,19 +79,25 @@ class OfflineTts(
         }
     }
 
-    fun sampleRate() = getSampleRate(ptr)
+    private inline fun <T> withValidPtr(block: (Long) -> T): T = ptrLock.read {
+        val current = ptr
+        check(current != 0L) { "OfflineTts instance has been released" }
+        block(current)
+    }
 
-    fun numSpeakers() = getNumSpeakers(ptr)
+    fun sampleRate() = withValidPtr { getSampleRate(it) }
+
+    fun numSpeakers() = withValidPtr { getNumSpeakers(it) }
 
     // Language/voice of the model, e.g., "fr", "en-us".
-    fun lang() = getLang(ptr)
+    fun lang() = withValidPtr { getLang(it) }
 
     fun generate(
         text: String,
         sid: Int = 0,
         speed: Float = 1.0f
-    ): GeneratedAudio {
-        return generateImpl(ptr, text = text, sid = sid, speed = speed)
+    ): GeneratedAudio = withValidPtr {
+        generateImpl(it, text = text, sid = sid, speed = speed)
     }
 
     fun generateWithCallback(
@@ -95,9 +105,9 @@ class OfflineTts(
         sid: Int = 0,
         speed: Float = 1.0f,
         callback: (samples: FloatArray) -> Int
-    ): GeneratedAudio {
-        return generateWithCallbackImpl(
-            ptr,
+    ): GeneratedAudio = withValidPtr {
+        generateWithCallbackImpl(
+            it,
             text = text,
             sid = sid,
             speed = speed,
@@ -108,19 +118,19 @@ class OfflineTts(
     fun generateWithConfig(
         text: String,
         config: GenerationConfig
-    ): GeneratedAudio {
-        return generateWithConfigImpl(ptr, text, config, null)
+    ): GeneratedAudio = withValidPtr {
+        generateWithConfigImpl(it, text, config, null)
     }
 
     fun generateWithConfigAndCallback(
         text: String,
         config: GenerationConfig,
         callback: (samples: FloatArray) -> Int
-    ): GeneratedAudio {
-        return generateWithConfigImpl(ptr, text, config, callback)
+    ): GeneratedAudio = withValidPtr {
+        generateWithConfigImpl(it, text, config, callback)
     }
 
-    fun allocate(assetManager: AssetManager? = null) {
+    fun allocate(assetManager: AssetManager? = null) = ptrLock.write {
         if (ptr == 0L) {
             ptr = if (assetManager != null) {
                 newFromAsset(assetManager, config)
@@ -133,7 +143,7 @@ class OfflineTts(
         }
     }
 
-    fun free() {
+    fun free() = ptrLock.write {
         if (ptr != 0L) {
             delete(ptr)
             ptr = 0
@@ -141,13 +151,10 @@ class OfflineTts(
     }
 
     protected fun finalize() {
-        if (ptr != 0L) {
-            delete(ptr)
-            ptr = 0
-        }
+        free()
     }
 
-    fun release() = finalize()
+    fun release() = free()
 
     private external fun newFromAsset(
         assetManager: AssetManager,
