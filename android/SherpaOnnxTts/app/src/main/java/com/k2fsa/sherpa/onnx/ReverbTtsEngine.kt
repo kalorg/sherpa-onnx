@@ -109,7 +109,7 @@ object ReverbTtsEngine {
         ReverbVoice(
             id = "es_male_standard_1",
             label = "🇪🇸 Espagnol : Homme (Standard 1)",
-            locale = Locale("es", "ES"),
+            locale = Locale.forLanguageTag("es-ES"),
             defaultText = "Hola a todos. Esta voz está generada con Reverb-TTS utilizando la unidad de procesamiento neuronal.",
             fileName = "voices/es_male_standard_1.json"
         ),
@@ -302,7 +302,7 @@ object ReverbTtsEngine {
                 conn = c
                 break
             }
-            val c = conn!!
+            val c = conn ?: throw IOException("HTTP connection failed for ${rf.name}")
             val total = c.contentLengthLong
             var downloaded = 0L
             var lastReportPct = -1

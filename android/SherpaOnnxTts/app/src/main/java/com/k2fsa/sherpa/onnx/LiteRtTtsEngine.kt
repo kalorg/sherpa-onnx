@@ -308,7 +308,7 @@ object LiteRtTtsEngine {
                 conn = c
                 break
             }
-            val c = conn!!
+            val c = conn ?: throw IOException("HTTP connection failed for ${rf.name}")
             val total = c.contentLengthLong
             var downloaded = 0L
             var lastReportPct = -1
